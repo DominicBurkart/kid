@@ -1,0 +1,9 @@
+[package]
+name = "kid"
+version = "0.1.0"
+authors = ["Dominic Burkart <dominicburkart@gmail.com>"]
+
+[dependencies]
+ndarray = { version = "0.11.0"}
+bytes = "0.4"
+geo = "0.7.4"
