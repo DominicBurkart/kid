@@ -1,16 +1,21 @@
 // mod argument_types
 
+#![allow(dead_code)] // for now.
+
 extern crate ndarray;
 extern crate bytes;
 extern crate geo;
 
-use bytes::Bytes;
-use geo::{Bbox, Coordinate, Point, Polygon};
-use ndarray::prelude::Array2;
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
-use std::path::Path;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use bytes::Bytes;
+use geo::{Bbox, Coordinate, Point, Polygon};
+use ndarray::prelude::{Array1, Array2};
 
 
 // constant functions not yet supported: const fn wordvec_length() -> usize { 300 }
@@ -23,17 +28,21 @@ pub struct SemanticShape {
     points: Vec<[f64; 300]>
 }
 
-pub fn vecdist(v1: &mut [f64], v2: &mut [f64]) {
-
+fn shape_from_instances(instances: &Vec<Instance>) -> SemanticShape{
+    panic!("Not implemented") // todo
 }
 
-pub fn cosdist(v1: &mut [f64], v2: &mut [f64]) {
+/// euclidean distance between two points of arbitrary dimensions.
+pub fn euc_dist(v1: &Array1<f64>, v2: &Array1<f64>) -> f64 {
+    if v1.len() != v2.len() { panic!("Arrays of two lengths passed to vecdist") }
+    ((v1 - v2) * (v1 - v2)).scalar_sum()
+}
 
-    if v1.len() != v2.len() { panic!("Arrays of two lengths passed to cosdist")}
-    for i in (1..v1.len()){
-
-    }
-    1 - similarity // cosine distance from similarity
+/// simple cosine distance operation on two arrays.
+pub fn cos_dist(v1: &Array1<f64>, v2: &Array1<f64>) -> f64 {
+    // todo check the formula on this.
+    if v1.len() != v2.len() { panic!("Arrays of two lengths passed to cosdist") }
+    1. - (v1 * v2 / ((v1 * v1).scalar_sum().sqrt() * (v2 * v2).scalar_sum().sqrt())).scalar_sum()
 }
 
 pub struct Location {
@@ -69,15 +78,16 @@ pub struct InstMetaData {
 }
 
 pub enum InstanceData {
-    String(InstMetaData),
-    Path(InstMetaData),
-    Bytes(InstMetaData),
-    Array2(InstMetaData),
+    // silly way of saying I have no idea how to store instancedata. maybe just as files?
+    Str(String, InstMetaData),
+    Pat(PathBuf, InstMetaData),
+    Byt(Bytes, InstMetaData),
+    Ar2(Array2<f64>, InstMetaData),
 }
 
 pub struct ProcessedData {
     name: String,
-    format_name: String
+    format_name: String,
 }
 
 pub struct Action {
@@ -164,7 +174,7 @@ impl Prob for CausalRule {
 }
 
 /// Effect yields Vectors of possible outcomes to deal with inferences; for causal rules, there is
-/// only one potential outcome (as well as the probability that it
+/// only one potential outcome (as well as the probability that the causal rule applies)
 ///
 impl Effect for CausalRule {
     fn effect(&self) -> Vec<&(f64, EventConjugate)> {
@@ -193,7 +203,7 @@ pub struct Instance {
     occurred_accuracy: u8,
     data: InstanceData,
     events: Vec<Event>,
-    semantics: SemanticEmbedding,
+    semantics: Option<SemanticEmbedding>,
     processed_data: HashMap<String, Vec<ProcessedData>>, // String is format name
 }
 
@@ -214,6 +224,18 @@ pub struct Proof {
     tier: u8, // smaller value -> more consistent
 // todo add executable or function as datafield for running proof. call it "apply"
 // apply: Fn
+}
+
+enum Response {
+    B(bool),
+    U(u64),
+    I(i64),
+    F(f64),
+    S(String),
+}
+
+trait Provable {
+    fn prove(Instance) -> (Response, f64); // proof output
 }
 
 
@@ -245,7 +267,11 @@ pub struct Assertion {
     proofs: HashMap<String, Vec<Proof>>,
     //format.name is the string key
     id: u64,
-    container_name: String, // should equal ID of AssertionContainer
+    container_name: String,
+    // should equal ID of AssertionContainer
+    last_diagnostic: Duration,
+    // since epoch
+    updated_since: bool, // updated since last diagnostic
 }
 
 impl Assertion {
@@ -268,7 +294,7 @@ impl AssertionDiagnostic {
 
 pub struct AssertionContainer {
     name: String,
-    semantic_shape: SemanticShape,
+    semantic_shape: Option<SemanticShape>,
     // space of contained assertions
     assertions: Vec<Assertion>,
     diagnostics: Vec<AssertionDiagnostic>,
@@ -278,15 +304,90 @@ pub struct AssertionMaster {
     containers: HashMap<String, AssertionContainer>,
 }
 
+fn generate_assertions(inst: &Instance) -> Vec<Assertion> {
+    panic!("Not implemented") // todo
+}
+
+fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
+    panic!("Not implemented") // todo
+}
+
+pub fn read_lines(fname: &Path) -> Vec<String> {
+    let file = File::open(fname).unwrap(); //todo deal with potential file errors.
+    let buf_reader = BufReader::new(file);
+    let mut out = Vec::new();
+    for l in buf_reader.lines() {
+        out.push(l.unwrap()); // todo deal with potential errors
+    }
+    out
+}
+
+fn parse_minimal(fname: &Path, name: String) -> Instance {
+    fn parse(s: String) -> Event {
+        panic!("Not implemented") // todo
+    }
+
+    fn get_events(stringvec: Vec<String>) -> Vec<Event> {
+        let mut v = Vec::new();
+        for astr in stringvec {
+            v.push(parse(astr));
+        }
+        v
+    }
+
+    fn get_semantics(events: &Vec<Event>) -> SemanticEmbedding {
+        panic!("Not implemented") // todo
+    }
+
+    let mut evs = get_events(read_lines(fname));
+    let mut sems = get_semantics(&evs);
+
+    Instance {
+        name: name,
+        observed: cur(),
+        occurred: None, // later versions should estimate time + provide accuracy estimate.
+        occurred_accuracy: 0,
+        data: InstanceData::Pat(fname.to_path_buf(),
+                                InstMetaData {
+                                    name: fname.to_str().unwrap().to_string(), // todo error handling
+                                    kind: "File".to_string(),
+                                }),
+        events: evs,
+        processed_data: HashMap::new(),
+        semantics: Some(sems),
+    }
+}
+
 fn main() {
-    for number in (1..4).rev() {
-        println!("{}!", number);
-    }
-    println!("LIFTOFF!!!");
-    let x = [1.,2.,3.];
-    let y = [1.5, 2.5, 3.5];
-    let z = x - y;
-    for n in z.iter() {
-        println!("{}", n);
-    }
+    println!("Minimal use case.");
+
+    let min_txt_path = Path::new("src/minimal.txt");
+
+    let inst = parse_minimal(min_txt_path, "minimal".to_string());
+
+    let mut assertions = generate_assertions(&inst);
+    let mut diagnostics = generate_diagnostics(&assertions);
+
+    let mut inst_vec = vec![inst]; // how we store instances is going to matter a lot.
+    // important considerations: accessibility based on entities, actions, semantic content, and
+    // state. I haven't decided on the best data structure for this yet.
+    // Maybe each assertion_container can have pointers to the relevant instances which are
+    // stored in a giant vector somewhere in the heap? It's okay if recalling specific instances
+    // (aka episodic memory) is slower than the assertion stuff; that's also true in human minds.
+
+    // generally we would want to check + rebalance all of our assertions (and how this is done
+    // given new data will be central to the functioning of this algorithm), but for now let's
+    // only look at the case of the first assertions from the first instance.
+
+    let mut am = AssertionMaster {
+        containers: HashMap::new()
+    };
+    let mut core_ac = AssertionContainer {
+        name: "core".to_string(),
+        assertions: assertions,
+        diagnostics: diagnostics,
+        semantic_shape: Some(shape_from_instances(&inst_vec)),
+    };
+
+    // we now have all of our assertions in a single container
 }

@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Dominic Burkart <dominicburkart@gmail.com>"]
 
 [dependencies]
-ndarray = { version = "0.11.0"}
+ndarray = "0.11"
+#ndarray = { version = "0.11", features = ["blas"] } todo find a way to build ndarray with optimization
+#blas-src = { version = "0.1", default-features = false, features = ["openblas"] }
+#openblas-src = { version = "0.5", default-features = false, features = ["cblas", "system"] }
 bytes = "0.4"
 geo = "0.7.4"
