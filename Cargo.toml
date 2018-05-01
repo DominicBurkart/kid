@@ -10,3 +10,5 @@ ndarray = "0.11"
 #openblas-src = { version = "0.5", default-features = false, features = ["cblas", "system"] }
 bytes = "0.4"
 geo = "0.7.4"
+regex = "0.2"
+lazy_static = "1.0"

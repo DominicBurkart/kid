@@ -1,21 +1,25 @@
 // mod argument_types
 
-#![allow(dead_code)] // for now.
+#![allow(dead_code)]
 
+#[macro_use(array)]
 extern crate ndarray;
 extern crate bytes;
 extern crate geo;
+extern crate regex;
+#[macro_use]
+extern crate lazy_static;
 
+use bytes::Bytes;
+use geo::{Bbox, Coordinate, Point, Polygon};
+use ndarray::prelude::{Array1, Array2};
+use regex::Regex;
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use bytes::Bytes;
-use geo::{Bbox, Coordinate, Point, Polygon};
-use ndarray::prelude::{Array1, Array2};
 
 
 // constant functions not yet supported: const fn wordvec_length() -> usize { 300 }
@@ -28,14 +32,14 @@ pub struct SemanticShape {
     points: Vec<[f64; 300]>
 }
 
-fn shape_from_instances(instances: &Vec<Instance>) -> SemanticShape{
+fn shape_from_instances(instances: &Vec<Instance>) -> SemanticShape {
     panic!("Not implemented") // todo
 }
 
 /// euclidean distance between two points of arbitrary dimensions.
 pub fn euc_dist(v1: &Array1<f64>, v2: &Array1<f64>) -> f64 {
     if v1.len() != v2.len() { panic!("Arrays of two lengths passed to vecdist") }
-    ((v1 - v2) * (v1 - v2)).scalar_sum()
+    ((v1 - v2) * (v1 - v2)).scalar_sum().sqrt()
 }
 
 /// simple cosine distance operation on two arrays.
@@ -235,7 +239,7 @@ enum Response {
 }
 
 trait Provable {
-    fn prove(Instance) -> (Response, f64); // proof output
+    fn prove(inst: Instance) -> (Response, f64); // proof output
 }
 
 
@@ -324,7 +328,22 @@ pub fn read_lines(fname: &Path) -> Vec<String> {
 
 fn parse_minimal(fname: &Path, name: String) -> Instance {
     fn parse(s: String) -> Event {
-        panic!("Not implemented") // todo
+        let core_phrases = ["action", "state", "entity"];
+        let operators = ["-", "+", "->", ":"];
+
+        lazy_static! {
+            static ref RELATION : Regex = Regex::new("[[:alpha:]]*?([[:alpha:]]*?)").unwrap();
+            static ref STARTPAREN : Regex = Regex::new("(").unwrap();
+            static ref ENDPAREN : Regex = Regex::new(")").unwrap();
+        }
+        for m in RELATION.find_iter(&s) {
+            let fs = m.start();
+            let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
+            let r = &s[fs..sp]; //relation
+            let pars = &s[sp + 1..]; //relation values
+        }
+
+        panic!("Not implemented"); // todo
     }
 
     fn get_events(stringvec: Vec<String>) -> Vec<Event> {
@@ -343,7 +362,7 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
     let mut sems = get_semantics(&evs);
 
     Instance {
-        name: name,
+        name,
         observed: cur(),
         occurred: None, // later versions should estimate time + provide accuracy estimate.
         occurred_accuracy: 0,
@@ -355,6 +374,45 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
         events: evs,
         processed_data: HashMap::new(),
         semantics: Some(sems),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_euc_dist() {
+        // todo currently only tests on len 4 arrays.
+
+        let a1: Array1<f64> = array![1., 0., 0., 0.];
+        let a2: Array1<f64> = array![1., 0., 0., 1.];
+        assert_eq!(1., euc_dist(&a1, &a2)); // minimal test
+
+        let a3: Array1<f64> = array![-1., 0., 1., 2.];
+        let a4: Array1<f64> = array![-2., 0., 1., 2.];
+        assert_eq!(1., euc_dist(&a3, &a4)); // negative numbers
+
+        let len4s = [
+            a1, a2, a3, a4,
+            array![-2435345., 123412423., 0.356, -1999.] as Array1<f64>, // decimals
+            array![0.01, 0.02, 0.03, 0.04] as Array1<f64>,
+            array![9999999999999., -9999999999999., 9999999999999., -9999999999999.] as Array1<f64> // larger ints
+        ];
+
+        for v1 in len4s.iter() {
+            for v2 in len4s.iter() {
+                let mut t = 0.;
+                for i in 0..v1.shape()[0] {
+                    t += (v1[i] - v2[i]).abs();
+                }
+                println!("{:?}", v1);
+                println!("{:?}", v2);
+                println!("{:?}", t);
+                println!("{:?}", euc_dist(&v1, &v2));
+                assert_eq!(t, euc_dist(&v1, &v2))
+            }
+        }
     }
 }
 
@@ -384,8 +442,8 @@ fn main() {
     };
     let mut core_ac = AssertionContainer {
         name: "core".to_string(),
-        assertions: assertions,
-        diagnostics: diagnostics,
+        assertions,
+        diagnostics,
         semantic_shape: Some(shape_from_instances(&inst_vec)),
     };
 

@@ -1,0 +1,19 @@
+// this document is example of the minimal relations text format (mrt). it should be in prolog instead imo.
+
+//abstracted implications
+symmetric_action(ent1, ent2, act) : action(ent1, ent2, act) + action(ent2, ent1, act) // declare new relations based on previous ones.
+state(ent, stat) : entity(ent) // allows implicit declaration of entities
+
+//less abstract implication
+action(x, y, submerge) : symmetric_action(x, y, touching) // atomic actions can be declared as implying other actions.
+
+// conjugated event + an implication
+entity(paper) + entity(water) + action(water, paper, submerge) -> state(paper, wet)
+state(paper, wet) : symmetric_action(paper, water, touching)
+
+//entities and states are assumed to be stable unless explicitly modified.
+state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning)
+state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet)
+state(match, burning) + water -> match(wet) + water - state(match, burning)
+
+// unimplemented: temporality, continuous transformations
