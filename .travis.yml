@@ -1,20 +1,15 @@
 language: rust
+
+sudo: required
+
 rust:
   - stable
   - beta
   - nightly
 
-sudo: true
-
-before_install:
-  - sudo apt-get update
-
 matrix:
   allow_failures:
     - rust: nightly
-  fast_finish: true
-
-cache: cargo
 
 addons:
   apt:
