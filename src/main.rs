@@ -42,14 +42,10 @@ pub fn euc_dist(v1: &Array1<f64>, v2: &Array1<f64>) -> f64 {
     ((v1 - v2) * (v1 - v2)).scalar_sum().sqrt()
 }
 
-/// Cosine distance operation on two arrays. In case of 0 in denominator, returns 1.
+/// Cosine distance operation on two arrays. Returns NAN if one or more input arrays is all-zero.
 pub fn cos_dist(v1: &Array1<f64>, v2: &Array1<f64>) -> f64 {
     if v1.len() != v2.len() { panic!("Arrays of two lengths passed to cosdist") }
-    let denom = (v1 * v1).scalar_sum().sqrt() * (v2 * v2).scalar_sum().sqrt();
-    if denom == 0. {
-        return 0.
-    }
-    1. - (v1.dot(v2) / denom)
+    1. - (v1.dot(v2) / ((v1 * v1).scalar_sum().sqrt() * (v2 * v2).scalar_sum().sqrt()))
 }
 
 pub struct Location {
@@ -382,7 +378,6 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
 
 #[cfg(test)]
 mod tests {
-
     #[test]
     /// tests distance metrics (euclidean and cosine)
     fn test_dist() {
@@ -400,7 +395,7 @@ mod tests {
             array![-2435345., 123412423., -1999.] as Array1<f64>,
             array![0.01, 0.02, 0.03] as Array1<f64>, // decimals
             array![9999999999999., 9999999999999., -9999999999999.] as Array1<f64>, // larger nums
-            array![0., 0., 0.] as Array1<f64>, // all zeros yield nan with cosine formula >:(
+            array![0., 0., 0.] as Array1<f64>,
             array![5.,5.,6.] as Array1<f64>
         ];
 
@@ -411,11 +406,11 @@ mod tests {
 
                 // check symmetric
                 assert_eq!(euc_dist(v2, v1), euc_dist(v1, v2));
-                assert_eq!(cos_dist(v2, v1), cos_dist(v1, v2));
+                assert!(cos_dist(v2, v1).is_nan() || (cos_dist(v2, v1) == cos_dist(v1, v2)));
 
                 // distance from self should be zero
                 assert_eq!(0., euc_dist(v1, v1));
-                assert_eq!(0., (10000000. * cos_dist(v1, v1)).round());
+                assert!(cos_dist(v1, v1).is_nan() || 0. == (10000000. * cos_dist(v1, v1)).round());
             }
         }
     }
