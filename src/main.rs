@@ -42,11 +42,14 @@ pub fn euc_dist(v1: &Array1<f64>, v2: &Array1<f64>) -> f64 {
     ((v1 - v2) * (v1 - v2)).scalar_sum().sqrt()
 }
 
-/// simple cosine distance operation on two arrays.
+/// Cosine distance operation on two arrays. In case of 0 in denominator, returns 1.
 pub fn cos_dist(v1: &Array1<f64>, v2: &Array1<f64>) -> f64 {
-    // todo check the formula on this.
     if v1.len() != v2.len() { panic!("Arrays of two lengths passed to cosdist") }
-    1. - (v1 * v2 / ((v1 * v1).scalar_sum().sqrt() * (v2 * v2).scalar_sum().sqrt())).scalar_sum()
+    let denom = (v1 * v1).scalar_sum().sqrt() * (v2 * v2).scalar_sum().sqrt();
+    if denom == 0. {
+        return 0.
+    }
+    1. - (v1.dot(v2) / denom)
 }
 
 pub struct Location {
@@ -379,38 +382,40 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
-    fn test_euc_dist() {
-        // todo currently only tests on len 4 arrays.
-
-        let a1: Array1<f64> = array![1., 0., 0., 0.];
-        let a2: Array1<f64> = array![1., 0., 0., 1.];
+    /// tests distance metrics (euclidean and cosine)
+    fn test_dist() {
+        use super::*;
+        let a1: Array1<f64> = array![1., 0., 0.];
+        let a2: Array1<f64> = array![1., 0., 1.];
         assert_eq!(1., euc_dist(&a1, &a2)); // minimal test
 
-        let a3: Array1<f64> = array![-1., 0., 1., 2.];
-        let a4: Array1<f64> = array![-2., 0., 1., 2.];
+        let a3: Array1<f64> = array![-1., 0., 2.];
+        let a4: Array1<f64> = array![-2., 0., 2.];
         assert_eq!(1., euc_dist(&a3, &a4)); // negative numbers
 
-        let len4s = [
+        let point_arrays = [
             a1, a2, a3, a4,
-            array![-2435345., 123412423., 0.356, -1999.] as Array1<f64>, // decimals
-            array![0.01, 0.02, 0.03, 0.04] as Array1<f64>,
-            array![9999999999999., -9999999999999., 9999999999999., -9999999999999.] as Array1<f64> // larger ints
+            array![-2435345., 123412423., -1999.] as Array1<f64>,
+            array![0.01, 0.02, 0.03] as Array1<f64>, // decimals
+            array![9999999999999., 9999999999999., -9999999999999.] as Array1<f64>, // larger nums
+            array![0., 0., 0.] as Array1<f64>, // all zeros yield nan with cosine formula >:(
+            array![5.,5.,6.] as Array1<f64>
         ];
 
-        for v1 in len4s.iter() {
-            for v2 in len4s.iter() {
-                let mut t = 0.;
-                for i in 0..v1.shape()[0] {
-                    t += (v1[i] - v2[i]).abs();
-                }
-                println!("{:?}", v1);
-                println!("{:?}", v2);
-                println!("{:?}", t);
-                println!("{:?}", euc_dist(&v1, &v2));
-                assert_eq!(t, euc_dist(&v1, &v2))
+        for v1 in point_arrays.iter() {
+            for v2 in point_arrays.iter() {
+                println!("v1: {:?}", v1);
+                println!("v2: {:?}\n\n", v2);
+
+                // check symmetric
+                assert_eq!(euc_dist(v2, v1), euc_dist(v1, v2));
+                assert_eq!(cos_dist(v2, v1), cos_dist(v1, v2));
+
+                // distance from self should be zero
+                assert_eq!(0., euc_dist(v1, v1));
+                assert_eq!(0., (10000000. * cos_dist(v1, v1)).round());
             }
         }
     }
