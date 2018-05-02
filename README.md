@@ -1,5 +1,6 @@
 # kid
 
 [![Build Status](https://travis-ci.org/DominicBurkart/kid.svg?branch=master)](https://travis-ci.org/DominicBurkart/kid)
+[![codecov](https://codecov.io/gh/DominicBurkart/kid/branch/master/graph/badge.svg)](https://codecov.io/gh/DominicBurkart/kid)
 
-Inference engine in rust – currently in development.
+An inference engine in rust! Currently in development.
