@@ -1,25 +1,37 @@
-sudo: required
+sudo: false
 
 language: rust
 
 rust:
-  - stable
-  - beta
-  - nightly
+    - nightly
+    - beta
+    - stable
 
 matrix:
   allow_failures:
     - rust: nightly
 
-cache:
-    apt: true
-    directories:
-        - target/debug/deps
-        - target/debug/build
+addons:
+  apt:
+    packages:
+    - libxxf86vm-dev
+    - libosmesa6-dev
+    - libcurl4-openssl-dev      # for kcov
+    - libelf-dev                # for kcov
+    - libdw-dev                 # for kcov
+    - cmake                     # for kcov
 
-after_success: |
-  sudo apt-get install libcurl4-openssl-dev libelf-dev libdw-dev cmake gcc binutils-dev libiberty-dev zlib1g-dev &&
-  wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-  tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make &&
-  sudo make install && cd ../.. &&
-  kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-*
+script:
+    - cargo build -v --no-default-features --features "$FEATURES"
+    - if [ "$TEST" -eq 1 ]; then cargo test -v -j 1 --no-default-features --features "$FEATURES"; fi
+
+after_success:
+    - |
+        [ $TRAVIS_BRANCH = master ] &&
+        [ $TRAVIS_PULL_REQUEST = false ] &&
+        [ "$COVERAGE" -eq 1 ] &&
+        wget https://github.com/SimonKagstrom/kcov/archive/master.zip &&
+        unzip master.zip && mv kcov-master kcov && mkdir kcov/build && cd kcov/build &&
+        cmake .. && make && make install DESTDIR=../built && cd ../.. &&
+        for file in ./target/debug/*; do ./kcov/built/usr/local/bin/kcov --verify --exclude-pattern=/.cargo,$PWD/target/debug/build,$PWD/tests ./target/kcov ${file}; done &&
+        ./kcov/built/usr/local/bin/kcov --coveralls-id=${TRAVIS_JOB_ID} --merge ./target/kcov-merge ./target/kcov
