@@ -1,7 +1,8 @@
-// mod argument_types
-
-#![allow(dead_code)]
-
+/// notable data structures:
+/// Assertions are arguments with boolean or numeric output (e.g., x is a subset of y, or count the number of sheep in this image).
+/// Causal rules suggest transformations in a system's entities, their actions, or their states.
+/// Events contain information on how, in a specific instance, a system's entities, their actions, or their states changed.
+/// Instances are specific points of data (e.g., a video of a person dancing).
 #[macro_use(array)]
 extern crate ndarray;
 extern crate bytes;
@@ -21,8 +22,6 @@ use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-
-// constant functions not yet supported: const fn wordvec_length() -> usize { 300 }
 
 pub fn cur() -> Duration {
     SystemTime::now().duration_since(UNIX_EPOCH).expect("SystemTime::duration_since failed")
@@ -137,7 +136,7 @@ pub struct CausalRule {
     prior: EventConjugate,
     outcome: (f64, EventConjugate),
     // confidence and outcome
-    known_exceptions: Vec<EventConjugate>,
+    known_exceptions: Vec<Event>,
 }
 
 pub trait Effect {
@@ -164,10 +163,10 @@ impl Prob for CausalRule {
     fn prob(&self, inst: &Instance) -> f64 {
         let mut min: f64 = self.outcome.0;
         for ev in &self.known_exceptions {
-            if contains_conjugate(inst, &ev) {
+            if contains_conjugate(inst, &ev.prior) {
                 return 0.; // causal outcome may still occur, but etiology is unknown. rely on inference.
             }
-            let cur = compare_conjugate_similarity(inst, &self.prior, ev);
+            let cur = compare_conjugate_similarity(inst, &self.prior, &ev.prior);
             if cur < min {
                 min = cur;
             }
@@ -194,7 +193,7 @@ impl Effect for CausalRule {
 
 pub struct Event {
     prior: EventConjugate,
-    posterior: EventConjugate,
+    posterior: Option<EventConjugate>,
 }
 
 pub struct Instance {
@@ -206,6 +205,10 @@ pub struct Instance {
     occurred_accuracy: u8,
     data: InstanceData,
     events: Vec<Event>,
+    causal_rules: Option<Vec<CausalRule>>,
+    // some input gives us explicit causal rules. this is second+ order knowledge.
+    assertions: Option<Vec<Assertion>>,
+    // some input gives us explicit assertions. this is second+ order knowledge.
     semantics: Option<SemanticEmbedding>,
     processed_data: HashMap<String, Vec<ProcessedData>>, // String is format name
 }
@@ -325,40 +328,79 @@ pub fn read_lines(fname: &Path) -> Vec<String> {
     out
 }
 
-fn parse_minimal(fname: &Path, name: String) -> Instance {
-    fn parse(s: String) -> Event {
-        let core_phrases = ["action", "state", "entity"];
-        let operators = ["-", "+", "->", ":"];
+/// These are what each line could represent.
+enum MinParseItem {
+    A(Assertion),
+    C(CausalRule),
+    E(Event),
+}
 
-        lazy_static! {
-            static ref RELATION : Regex = Regex::new("[[:alpha:]]*?([[:alpha:]]*?)").unwrap();
-            static ref STARTPAREN : Regex = Regex::new("(").unwrap();
-            static ref ENDPAREN : Regex = Regex::new(")").unwrap();
-        }
-        for m in RELATION.find_iter(&s) {
-            let fs = m.start();
-            let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
-            let r = &s[fs..sp]; //relation
-            let pars = &s[sp + 1..]; //relation values
+fn string_min_parse(s: String) -> MinParseItem {
+    lazy_static! {
+            static ref RELATION : Regex = Regex::new("[[:alpha:]]*?[(][[:alpha:]]*?[)]").unwrap();
+            static ref STARTPAREN : Regex = Regex::new("[(]").unwrap();
+            static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
+
+            static ref OPERATORS: [String; 4] = ["-".to_string(),
+            "+".to_string(), "->".to_string(), ":".to_string()];
+
+            static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
+            "state".to_string(), "entity".to_string()];
         }
 
-        panic!("Not implemented"); // todo
+    // todo split processing here based on if it's an event, rule, or assertion.
+
+    for m in RELATION.find_iter(&s) {
+        // because of our regex we know that we have chars, a start parent, chars, and an end paren.
+        let fs = m.start();
+        let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
+        let r = &s[fs..sp]; //relation
+        let pars = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start()]; //relation values
     }
 
-    fn get_events(stringvec: Vec<String>) -> Vec<Event> {
-        let mut v = Vec::new();
+    let mut prior = EventConjugate {
+        actions: Vec::new(),
+        states: Vec::new(),
+        entities: Vec::new(),
+    };
+
+    let mut posterior = EventConjugate {
+        actions: Vec::new(),
+        states: Vec::new(),
+        entities: Vec::new(),
+    };
+
+    panic!("Not implemented"); // todo
+}
+
+fn parse_minimal(fname: &Path, name: String) -> Instance {
+    fn process_lines(stringvec: Vec<String>) -> (Vec<Assertion>, Vec<CausalRule>, Vec<Event>) {
+        let mut va = Vec::new();
+        let mut vc = Vec::new();
+        let mut ve = Vec::new();
         for astr in stringvec {
-            v.push(parse(astr));
+            let m = string_min_parse(astr);
+            match m {
+                MinParseItem::A(assertion) => {
+                    va.push(assertion);
+                }
+                MinParseItem::C(rule) => {
+                    vc.push(rule);
+                }
+                MinParseItem::E(event) => {
+                    ve.push(event);
+                }
+            }
         }
-        v
+        (va, vc, ve)
     }
 
     fn get_semantics(events: &Vec<Event>) -> SemanticEmbedding {
         panic!("Not implemented") // todo
     }
 
-    let mut evs = get_events(read_lines(fname));
-    let mut sems = get_semantics(&evs);
+    let (mut va, mut vc, mut ve) = process_lines(read_lines(fname));
+    let mut sems = get_semantics(&ve);
 
     Instance {
         name,
@@ -370,7 +412,9 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
                                     name: fname.to_str().unwrap().to_string(), // todo error handling
                                     kind: "File".to_string(),
                                 }),
-        events: evs,
+        events: ve,
+        assertions: Some(va),
+        causal_rules: Some(vc),
         processed_data: HashMap::new(),
         semantics: Some(sems),
     }
@@ -411,6 +455,12 @@ mod tests {
                 // distance from self should be zero
                 assert_eq!(0., euc_dist(v1, v1));
                 assert!(cos_dist(v1, v1).is_nan() || 0. == (10000000. * cos_dist(v1, v1)).round());
+
+                // distance between any non-identical vectors should not be zero
+                if v1 != v2 {
+                    assert_ne!(0., euc_dist(v1, v2));
+                    assert_ne!(0., cos_dist(v1, v2));
+                }
             }
         }
     }
@@ -421,12 +471,13 @@ fn main() {
 
     let min_txt_path = Path::new("src/minimal.txt");
 
-    let inst = parse_minimal(min_txt_path, "minimal".to_string());
+    let min_inst = parse_minimal(min_txt_path, "minimal".to_string());
 
-    let mut assertions = generate_assertions(&inst);
+    let mut assertions = generate_assertions(&min_inst);
     let mut diagnostics = generate_diagnostics(&assertions);
 
-    let mut inst_vec = vec![inst]; // how we store instances is going to matter a lot.
+    let mut inst_vec = vec![min_inst];
+    // how we store instances is going to matter a lot.
     // important considerations: accessibility based on entities, actions, semantic content, and
     // state. I haven't decided on the best data structure for this yet.
     // Maybe each assertion_container can have pointers to the relevant instances which are
@@ -446,6 +497,9 @@ fn main() {
         diagnostics,
         semantic_shape: Some(shape_from_instances(&inst_vec)),
     };
+    // we now have all of our assertions in a single container.
 
-    // we now have all of our assertions in a single container
+    //next up we want to predict something.
+
+    //string_min_parse()
 }
