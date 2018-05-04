@@ -1,4 +1,3 @@
-
 sudo: required
 
 language: rust
@@ -11,12 +10,6 @@ rust:
 matrix:
   allow_failures:
     - rust: nightly
-
-services:
-  - docker
-
-script:
-- make test-docker-env
 
 cache:
     apt: true
@@ -33,7 +26,5 @@ addons:
 
 after_success: |
     [ $TRAVIS_RUST_VERSION = stable ] &&
-    wget https://github.com/shaneutt/kcov/archive/master.tar.gz &&
-    tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make && make install DESTDIR=../tmp && cd ../.. &&
-    ls target/debug &&
-    ./kcov-master/tmp/usr/local/bin/kcov –coveralls-id=$TRAVIS_JOB_ID –exclude-pattern=/.cargo target/kcov target/debug/kid-*
+    cargo install cargo-kcov &&
+    cargo kcov --coveralls $TRAVIS_JOB_ID
