@@ -40,7 +40,7 @@ script:
 after_success:
   - |
       if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
-      kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-* &&
+      kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-*
       fi
 
 env:
