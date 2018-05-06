@@ -33,8 +33,11 @@ before_script:
 script:
   - |
       if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+      echo building &&
       travis-cargo build &&
+      echo testing &&
       travis-cargo test &&
+      echo benching &&
       travis-cargo bench;
       fi
   - |
