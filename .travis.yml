@@ -1,39 +1,61 @@
-sudo: required
+# from https://github.com/FractalGlobal/ntru-rs/blob/master/.travis.yml
 
 language: rust
-
-rust:
-  - stable
-  - beta
-  - nightly
-
-matrix:
-  allow_failures:
-    - rust: nightly
-
-#cache:
-#    apt: true
-#    directories:
-#        - target/debug/deps
-#        - target/debug/build
-
+cache: cargo
+dist: trusty
+sudo: false
+os:
+  - linux
+  - osx
 addons:
   apt:
-    packages: # all of these are for kcov.
-      - cmake
-      - g++
-      - pkg-config
+    packages:
       - libcurl4-openssl-dev
+      - libelf-dev
       - libdw-dev
       - binutils-dev
-      - libiberty-dev
 
-# failing command: cargo kcov --print-install-kcov-sh | sh &&
+# Run builds for all the supported trains
+rust:
+  - nightly
+  - beta
+  - stable
 
-after_success: |
-    [ $TRAVIS_RUST_VERSION = stable ] &&
-    wget https://github.com/shaneutt/kcov/archive/master.tar.gz &&
-    tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make && make install DESTDIR=../tmp && cd ../.. &&
-    ls target/debug &&
-    cargo install cargo-kcov &&
-    cargo kcov --coveralls $TRAVIS_JOB_ID
+# Load travis-cargo
+before_script:
+  - |
+      if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+      pip install git+https://github.com/FractalGlobal/travis-cargo.git@fix-coveralls --user &&
+      export PATH=$HOME/.local/bin:$PATH
+      fi
+
+# The main build
+script:
+  - |
+      if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+      travis-cargo build &&
+      travis-cargo test &&
+      travis-cargo bench;
+      fi
+  - |
+      if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
+      cargo build &&
+      cargo test &&
+      cargo bench;
+      fi
+# Send coverage reports and upload docs
+after_success:
+  - |
+      if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+      travis-cargo --only stable coveralls --no-sudo --verify;
+      fi
+env:
+  global:
+    - TRAVIS_CARGO_NIGHTLY_FEATURE=""
+
+notifications:
+  email:
+    recipients:
+      - dominicburkart@gmail.com
+    on_success: change
+    on_failure: always
