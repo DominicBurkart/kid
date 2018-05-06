@@ -28,8 +28,9 @@ addons:
       - binutils-dev
       - libiberty-dev
 
+# failing command: cargo kcov --print-install-kcov-sh | sh &&
+
 after_success: |
     [ $TRAVIS_RUST_VERSION = stable ] &&
     cargo install cargo-kcov &&
-    cargo kcov --print-install-kcov-sh | sh &&
     cargo kcov --coveralls $TRAVIS_JOB_ID
