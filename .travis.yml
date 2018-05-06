@@ -21,13 +21,25 @@ rust:
   - beta
   - nightly
 
+install:
+- tar xzf master.tar.gz
+- cd kcov-master
+- mkdir build
+- cd build
+- cmake -DCMAKE_INSTALL_PREFIX=${HOME}/kcov ..
+- make
+- make install
+- cd ../..
+- rm -rf kcov-master
+- mkdir -p coverage
+
 # Load travis-cargo
-before_script:
-  - |
-      if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
-      pip install git+https://github.com/FractalGlobal/travis-cargo.git@fix-coveralls --user &&
-      export PATH=$HOME/.local/bin:$PATH
-      fi
+#before_script:
+#  - |
+#      if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+#      pip install git+https://github.com/FractalGlobal/travis-cargo.git@fix-coveralls --user &&
+#      export PATH=$HOME/.local/bin:$PATH
+#      fi
 
 # The main build
 script:
