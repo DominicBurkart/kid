@@ -1,12 +1,11 @@
 sudo: required
 
-os:
-  - linux
+os: linux
 language: rust
 rust:
   - stable
-#  - beta
-#  - nightly
+  - beta
+  - nightly
 cache:
   - cargo
   - apt
@@ -19,14 +18,13 @@ addons:
       - libdw-dev
 
 script:
-#- cargo clean
-#- cargo build
+- cargo build
+- cargo bench
 - cargo test
-#- cargo bench
-
-after_success:
-- cargo install cargo-kcov
-- cargo kcov --print-install-kcov-sh | sh
-- cargo run -- kcov --verbose --no-clean-rebuild --lib --coveralls
-# - docker run -it --rm --security-opt seccomp=unconfined ragnaroek/kcov:v33 --coveralls-id=$TRAVIS_JOB_ID --include-pattern=kid target/kcov target/debug/kid-*
-- bash <(curl -s https://codecov.io/bash)
+- |
+      if [ [ "$TRAVIS_OS_NAME" == "linux"] && [ "$TRAVIS_OS_NAME" == "stable" ] ]; then
+        cargo install cargo-kcov
+        cargo kcov --print-install-kcov-sh | sh
+        cargo run -- kcov --verbose --no-clean-rebuild --lib --coveralls
+        bash <(curl -s https://codecov.io/bash)
+      fi
