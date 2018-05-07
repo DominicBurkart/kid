@@ -46,6 +46,6 @@ script:
 after_success:
 - |
       if [ "$TRAVIS_OS_NAME" == "linux"] && [ "$TRAVIS_OS_NAME" == "stable" ] then
-        kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-*
+        kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-* &&
         bash <(curl -s https://codecov.io/bash)
       fi
