@@ -1,13 +1,12 @@
 sudo: false
-
+os:
+  - linux
+  - osx
 language: rust
 rust:
   - stable
   - beta
   - nightly
-os:
-  - linux
-  - osx
 cache:
   - cargo
   - apt
@@ -19,13 +18,11 @@ addons:
       - libelf-dev
       - libdw-dev
 
-
 env:
 - PATH=${PATH}:${HOME}/kcov/bin
 
 before_install:
 - wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz
-
 install:
 - tar xzf master.tar.gz
 - cd kcov-master
@@ -37,15 +34,10 @@ install:
 - cd ../..
 - rm -rf kcov-master
 - mkdir -p coverage
-
 script:
 - cargo build
 - cargo test
 - cargo bench
-
 after_success:
-- |
-      if [ "$TRAVIS_OS_NAME" == "linux"] && [ "$TRAVIS_OS_NAME" == "stable" ] then
-        kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-* &&
-        bash <(curl -s https://codecov.io/bash)
-      fi
+- kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-*
+- bash <(curl -s https://codecov.io/bash)
