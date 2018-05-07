@@ -25,7 +25,7 @@ env:
 - PATH=${PATH}:${HOME}/kcov/bin
 
 before_install: # todo: make this conditional to allow builds on osx too
-- docker pull ragnaroek/kcov:vXX
+- docker pull ragnaroek/kcov:v33
 - docker run --security-opt seccomp=unconfined -v $(pwd):/source kcov:v33
 
 script:
