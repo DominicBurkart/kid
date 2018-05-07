@@ -4,7 +4,6 @@ services:
   - docker
 os:
   - linux
-#  - osx //
 language: rust
 rust:
   - stable
@@ -24,9 +23,9 @@ addons:
 env:
 - PATH=${PATH}:${HOME}/kcov/bin
 
-before_install: # todo: make this conditional to allow builds on osx too
+before_install:
 - docker pull ragnaroek/kcov:v31
-- docker run --security-opt seccomp=unconfined -v $(pwd):/source kcov:v31
+- docker run --security-opt seccomp=unconfined -v $(pwd):/source ragnaroek/kcov:v33
 
 script:
 - cargo build
