@@ -21,10 +21,11 @@ addons:
       - libdw-dev
 
 script:
-- cargo build
+- cargo clean
+#- cargo build
 - cargo test
-- cargo bench
+#- cargo bench
 
 after_success: # - mkdir target/kcov
-- docker run -it --rm --security-opt seccomp=unconfined -v $(pwd):/source ragnaroek/kcov:v33 --coveralls-id=$TRAVIS_JOB_ID --include-pattern=kid target/kcov target/debug/kid-*/*
+- docker run -it --rm --security-opt seccomp=unconfined ragnaroek/kcov:v33 --coveralls-id=$TRAVIS_JOB_ID --include-pattern=kid target/kcov target/debug/*
 - bash <(curl -s https://codecov.io/bash)
