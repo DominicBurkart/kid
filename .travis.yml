@@ -25,7 +25,6 @@ env:
 
 before_install:
 - docker pull ragnaroek/kcov:v31
-- docker run --security-opt seccomp=unconfined -v $(pwd):/source ragnaroek/kcov:v33
 
 script:
 - cargo build
@@ -33,5 +32,5 @@ script:
 - cargo bench
 
 after_success:
-- kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-*
+- docker run --security-opt seccomp=unconfined -v $(pwd):/source ragnaroek/kcov:v33 --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/kid-*
 - bash <(curl -s https://codecov.io/bash)
