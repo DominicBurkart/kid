@@ -467,39 +467,37 @@ mod tests {
 }
 
 fn main() {
-    println!("Minimal use case.");
-
-    let min_txt_path = Path::new("src/minimal.txt");
-
-    let min_inst = parse_minimal(min_txt_path, "minimal".to_string());
-
-    let mut assertions = generate_assertions(&min_inst);
-    let mut diagnostics = generate_diagnostics(&assertions);
-
-    let mut inst_vec = vec![min_inst];
-    // how we store instances is going to matter a lot.
-    // important considerations: accessibility based on entities, actions, semantic content, and
-    // state. I haven't decided on the best data structure for this yet.
-    // Maybe each assertion_container can have pointers to the relevant instances which are
-    // stored in a giant vector somewhere in the heap? It's okay if recalling specific instances
-    // (aka episodic memory) is slower than the assertion stuff; that's also true in human minds.
-
-    // generally we would want to check + rebalance all of our assertions (and how this is done
-    // given new data will be central to the functioning of this algorithm), but for now let's
-    // only look at the case of the first assertions from the first instance.
-
-    let mut am = AssertionMaster {
-        containers: HashMap::new()
-    };
-    let mut core_ac = AssertionContainer {
-        name: "core".to_string(),
-        assertions,
-        diagnostics,
-        semantic_shape: Some(shape_from_instances(&inst_vec)),
-    };
-    // we now have all of our assertions in a single container.
-
-    //next up we want to predict something.
-
-    //string_min_parse()
+//    println!("Minimal use case.");
+//
+//    let min_txt_path = Path::new("src/minimal.txt");
+//
+//    let min_inst = parse_minimal(min_txt_path, "minimal".to_string());
+//
+//    let mut assertions = generate_assertions(&min_inst);
+//    let mut diagnostics = generate_diagnostics(&assertions);
+//
+//    let mut inst_vec = vec![min_inst];
+//    // how we store instances is going to matter a lot.
+//    // important considerations: accessibility based on entities, actions, semantic content, and
+//    // state. I haven't decided on the best data structure for this yet.
+//    // Maybe each assertion_container can have pointers to the relevant instances which are
+//    // stored in a giant vector somewhere in the heap? It's okay if recalling specific instances
+//    // (aka episodic memory) is slower than the assertion stuff; that's also true in human minds.
+//
+//    // generally we would want to check + rebalance all of our assertions (and how this is done
+//    // given new data will be central to the functioning of this algorithm), but for now let's
+//    // only look at the case of the first assertions from the first instance.
+//
+//    let mut am = AssertionMaster {
+//        containers: HashMap::new()
+//    };
+//    let mut core_ac = AssertionContainer {
+//        name: "core".to_string(),
+//        assertions,
+//        diagnostics,
+//        semantic_shape: Some(shape_from_instances(&inst_vec)),
+//    };
+//    // we now have all of our assertions in a single container.
+//
+//    //next up we want to predict something.
 }
