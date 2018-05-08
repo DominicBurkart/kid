@@ -318,16 +318,6 @@ fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
     panic!("Not implemented") // todo
 }
 
-pub fn read_lines(fname: &Path) -> Vec<String> {
-    let file = File::open(fname).unwrap(); //todo deal with potential file errors.
-    let buf_reader = BufReader::new(file);
-    let mut out = Vec::new();
-    for l in buf_reader.lines() {
-        out.push(l.unwrap()); // todo deal with potential errors
-    }
-    out
-}
-
 /// These are what each line could represent.
 enum MinParseItem {
     A(Assertion),
@@ -370,10 +360,37 @@ fn string_min_parse(s: String) -> MinParseItem {
         entities: Vec::new(),
     };
 
+
     panic!("Not implemented"); // todo
 }
 
 fn parse_minimal(fname: &Path, name: String) -> Instance {
+    fn read_lines(fname: &Path) -> Vec<String> {
+        fn remove_comments(s: &str) -> Option<&str> {
+            match s.find("//") {
+                Some(index) => return remove_comments(&s[..index]),
+                None => (),
+            }
+            if !s.contains("->") && !s.contains(":") {
+                return None; // cleans out newlines. Also removes misformatted lines.
+            }
+            Some(s)
+        }
+
+        let file = File::open(fname).unwrap(); //todo deal with potential file errors.
+        let buf_reader = BufReader::new(file);
+        let mut out = Vec::new();
+        for l in buf_reader.lines() {
+            let s = l.unwrap(); // todo deal with potential string errors.
+            match remove_comments(&s) {
+                Some(cleaned) => out.push(cleaned.to_string()),
+                None => (),
+            }
+        }
+        out
+    }
+
+
     fn process_lines(stringvec: Vec<String>) -> (Vec<Assertion>, Vec<CausalRule>, Vec<Event>) {
         let mut va = Vec::new();
         let mut vc = Vec::new();
