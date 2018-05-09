@@ -92,16 +92,22 @@ pub struct ProcessedData {
     format_name: String,
 }
 
+/// Actions must match on name and id to be considered identical (IDs themselves aren't unique).
 pub struct Action {
-    // todo
+    id: u64,
+    name: String,
 }
 
+/// States must match on name and id to be considered identical (IDs themselves aren't unique).
 pub struct State {
-    // todo
+    id: u64,
+    name: String,
 }
 
+/// Entities must match on name and id to be considered identical (IDs themselves aren't unique).
 pub struct Entity {
-    // todo
+    id: u64,
+    name: String,
 }
 
 pub struct PhysicalEntity {
@@ -155,7 +161,12 @@ pub struct GeometricShape {
     orientation: Vec<f64>,
 }
 
-/// Probability that the causal rule applies in a given instance.
+/// Probability that the causal rule applies in a given instance. Does not factor in higher-order
+/// similarity modeling (just a series of binary similarity comparisons).
+///
+/// Ideally, clusters of similar exceptions should be formed and this should compare new events to
+/// these clusters instead of to individual exceptions (i.e., exceptions should be abstracted away
+/// from specific instances as more of them are observed for computational ease).
 impl Prob for CausalRule {
     fn freq(&self) -> f64 {
         self.outcome.0
@@ -325,7 +336,45 @@ enum MinParseItem {
     E(Event),
 }
 
-fn string_min_parse(s: String) -> MinParseItem {
+fn string_min_parse(s: String) -> Option<MinParseItem> {
+
+    // todo current problem: how do we get from relations to A / C / E ?
+
+    // trivial assertion: relation exists if MRT file suggests it does, with probability based on
+    // trust of the file.
+
+    fn parse_relation(relstr: &str, parstr: &str) -> Relation {
+        panic!("Not implemented")
+        // todo: split params into unique values. How do we deal with multiple analogous relations?
+    }
+
+    fn parse_relations(s: &str) -> Vec<Relation> { // todo this should be returning a vec of relation objects, right?
+        let mut vec = Vec::new();
+        for m in RELATION.find_iter(s) {
+            // for each m we know that we have chars, a start parent, chars, and an end paren.
+            let fs = m.start();
+            let sp = fs + STARTPAREN.find(s[fs..]).unwrap().start(); // start parenthesis
+            let relation = s[fs..sp]; //relation
+            let params = s[sp + 1..ENDPAREN.find(s[sp + 1..]).unwrap().start()]; //relation values
+            vec.push(parse_relation(relation, params));
+        }
+        vec
+    }
+
+    fn parse_assertion(s: String) -> Assertion {
+        let mut prior = EventConjugate {
+            actions: Vec::new(),
+            states: Vec::new(),
+            entities: Vec::new(),
+        };
+
+        let mut posterior = EventConjugate {
+            actions: Vec::new(),
+            states: Vec::new(),
+            entities: Vec::new(),
+        };
+    }
+
     lazy_static! {
             static ref RELATION : Regex = Regex::new("[[:alpha:]]*?[(][[:alpha:]]*?[)]").unwrap();
             static ref STARTPAREN : Regex = Regex::new("[(]").unwrap();
@@ -340,26 +389,6 @@ fn string_min_parse(s: String) -> MinParseItem {
 
     // todo split processing here based on if it's an event, rule, or assertion.
 
-    for m in RELATION.find_iter(&s) {
-        // because of our regex we know that we have chars, a start parent, chars, and an end paren.
-        let fs = m.start();
-        let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
-        let r = &s[fs..sp]; //relation
-        let pars = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start()]; //relation values
-    }
-
-    let mut prior = EventConjugate {
-        actions: Vec::new(),
-        states: Vec::new(),
-        entities: Vec::new(),
-    };
-
-    let mut posterior = EventConjugate {
-        actions: Vec::new(),
-        states: Vec::new(),
-        entities: Vec::new(),
-    };
-
 
     panic!("Not implemented"); // todo
 }
@@ -368,13 +397,14 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
     fn read_lines(fname: &Path) -> Vec<String> {
         fn remove_comments(s: &str) -> Option<&str> {
             match s.find("//") {
-                Some(index) => return remove_comments(&s[..index]),
-                None => (),
+                Some(index) => return remove_comments(s[..index]),
+                None => {
+                    if !s.contains("->") && !s.contains(":") {
+                        None // cleans out empty lines. Also removes misformatted lines.
+                    }
+                    Some(s)
+                }
             }
-            if !s.contains("->") && !s.contains(":") {
-                return None; // cleans out newlines. Also removes misformatted lines.
-            }
-            Some(s)
         }
 
         let file = File::open(fname).unwrap(); //todo deal with potential file errors.
@@ -398,15 +428,16 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
         for astr in stringvec {
             let m = string_min_parse(astr);
             match m {
-                MinParseItem::A(assertion) => {
+                Some(MinParseItem::A(assertion)) => {
                     va.push(assertion);
                 }
-                MinParseItem::C(rule) => {
+                Some(MinParseItem::C(rule)) => {
                     vc.push(rule);
                 }
-                MinParseItem::E(event) => {
+                Some(MinParseItem::E(event)) => {
                     ve.push(event);
                 }
+                None => (),
             }
         }
         (va, vc, ve)
@@ -471,7 +502,8 @@ mod tests {
 
                 // distance from self should be zero
                 assert_eq!(0., euc_dist(v1, v1));
-                assert!(cos_dist(v1, v1).is_nan() || 0. == (10000000. * cos_dist(v1, v1)).round());
+                assert!(cos_dist(v1, v1).is_nan() || 0 == (10000000. * cos_dist(v1, v1)).round());
+                // (account for rounding errors with cos_dist)
 
                 // distance between any non-identical vectors should not be zero
                 if v1 != v2 {
