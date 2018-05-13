@@ -139,7 +139,7 @@ pub fn compare_conjugate_similarity(inst: &Instance, conj1: &EventConjugate, con
 /// by finding how similar a given scene is to the general rule versus the exception.
 pub struct CausalRule {
     name: String,
-    prior: EventConjugate,
+    before: EventConjugate,
     outcome: (f64, EventConjugate),
     // confidence and outcome
     known_exceptions: Vec<Event>,
@@ -174,10 +174,10 @@ impl Prob for CausalRule {
     fn prob(&self, inst: &Instance) -> f64 {
         let mut min: f64 = self.outcome.0;
         for ev in &self.known_exceptions {
-            if contains_conjugate(inst, &ev.prior) {
+            if contains_conjugate(inst, &ev.before) {
                 return 0.; // causal outcome may still occur, but etiology is unknown. rely on inference.
             }
-            let cur = compare_conjugate_similarity(inst, &self.prior, &ev.prior);
+            let cur = compare_conjugate_similarity(inst, &self.before, &ev.before);
             if cur < min {
                 min = cur;
             }
@@ -203,8 +203,8 @@ impl Effect for CausalRule {
 }
 
 pub struct Event {
-    prior: EventConjugate,
-    posterior: Option<EventConjugate>,
+    before: EventConjugate,
+    after: Option<EventConjugate>,
 }
 
 pub struct Instance {
@@ -362,13 +362,13 @@ fn string_min_parse(s: String) -> Option<MinParseItem> {
     }
 
     fn parse_assertion(s: String) -> Assertion {
-        let mut prior = EventConjugate {
+        let mut before = EventConjugate {
             actions: Vec::new(),
             states: Vec::new(),
             entities: Vec::new(),
         };
 
-        let mut posterior = EventConjugate {
+        let mut after = EventConjugate {
             actions: Vec::new(),
             states: Vec::new(),
             entities: Vec::new(),
@@ -549,4 +549,5 @@ fn main() {
     // we now have all of our assertions in a single container.
 
     //next up we want to predict something.
+    let predict = "";
 }
