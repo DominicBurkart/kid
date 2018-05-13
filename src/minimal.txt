@@ -1,13 +1,24 @@
-// this document is example of the minimal relations text format (mrt). it should be in prolog instead imo.
+// this document is example of the minimal relations text format (mrt).
 
-//abstracted implications
-symmetric_action(ent1, ent2, act) : action(ent1, ent2, act) + action(ent2, ent1, act) // declare new relations based on previous ones.
-state(ent, stat) : entity(ent) // allows implicit declaration of entities
+// todo: make sure the the implementation for variable management for mrt doesn't deals with relation assertions by
+// putting them into a set (so that we don't have to worry abt recursion).
 
-//less abstract implication
-action(x, y, submerge) : symmetric_action(x, y, touching) // atomic actions can be declared as implying other actions.
+// notable matches:
+// _ent, _ent1, _ent2 [...] matches with any entity. _ent1 and _ent2 can match to the same entity.
+// similarly, _act, _act1, _act2 [...] matches with any action. _act1 and _act2 can match the same action.
 
-// conjugated event + an implication
+// todo create syntax for matching actions and entities.
+// todo create syntax for sets of actions, of entities, and of relations.
+// todo create syntax for temporality, continuous transformations.
+
+//abstract assertion. used for parsing relations.
+symmetric_action(_ent1, _ent2, _act) : action(_ent1, _ent2, _act) + action(_ent2, _ent1, _act) // declare new relations based on previous ones.
+state(_ent, _stat) : entity(_ent) // allows implicit declaration of entities
+
+//less abstract assertion. Used for inheritance in relations.
+action(_ent1, _ent2, submerge) : symmetric_action(_ent1, _ent2, touching) // atomic actions can be declared as implying other actions.
+
+// conjugated event + an assertion.
 entity(paper) + entity(water) + action(water, paper, submerge) -> state(paper, wet)
 state(paper, wet) : symmetric_action(paper, water, touching)
 
@@ -15,5 +26,3 @@ state(paper, wet) : symmetric_action(paper, water, touching)
 state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning)
 state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet)
 state(match, burning) + water -> match(wet) + water - state(match, burning)
-
-// unimplemented: temporality, continuous transformations
