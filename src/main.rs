@@ -92,25 +92,25 @@ pub struct ProcessedData {
     format_name: String,
 }
 
-/// Actions must match on name and id to be considered identical (IDs themselves aren't unique).
 pub struct Action {
-    id: u64,
+    instance_names: Vec<String>,
     name: String,
 }
 
-/// States must match on name and id to be considered identical (IDs themselves aren't unique).
 pub struct State {
-    id: u64,
+    instance_names: Vec<String>,
     name: String,
 }
 
-/// Entities must match on name and id to be considered identical (IDs themselves aren't unique).
+// i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
 pub struct Entity {
-    id: u64,
+    instance_names: Vec<String>,
     name: String,
 }
 
 pub struct PhysicalEntity {
+    instance_name: String,
+    name: String,
     shape: GeometricShape,
     scale: u64, // log scale where 0 == subatomic
 }
@@ -329,6 +329,16 @@ fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
     panic!("Not implemented") // todo
 }
 
+enum RelationParams {
+    Entity(Entity),
+    Action(Action),
+    State(State),
+}
+
+struct Relation {
+    params: Vec<RelationParams>,
+}
+
 /// These are what each line could represent.
 enum MinParseItem {
     A(Assertion),
@@ -337,6 +347,7 @@ enum MinParseItem {
 }
 
 fn string_min_parse(s: String) -> Option<MinParseItem> {
+    println!("Parsing line: {}", s);
 
     // todo current problem: how do we get from relations to A / C / E ?
 
@@ -353,9 +364,9 @@ fn string_min_parse(s: String) -> Option<MinParseItem> {
         for m in RELATION.find_iter(s) {
             // for each m we know that we have chars, a start parent, chars, and an end paren.
             let fs = m.start();
-            let sp = fs + STARTPAREN.find(s[fs..]).unwrap().start(); // start parenthesis
-            let relation = s[fs..sp]; //relation
-            let params = s[sp + 1..ENDPAREN.find(s[sp + 1..]).unwrap().start()]; //relation values
+            let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
+            let relation = &s[fs..sp]; //relation
+            let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start()]; //relation values
             vec.push(parse_relation(relation, params));
         }
         vec
@@ -373,6 +384,8 @@ fn string_min_parse(s: String) -> Option<MinParseItem> {
             states: Vec::new(),
             entities: Vec::new(),
         };
+
+        panic!("Not implemented")
     }
 
     lazy_static! {
@@ -393,16 +406,24 @@ fn string_min_parse(s: String) -> Option<MinParseItem> {
     panic!("Not implemented"); // todo
 }
 
+/// Usually kid will be constantly predicting a whole bunch of things and processing those
+/// predictions in a lot of ways (e.g. to self-optimize and to decide how to act). But, for the
+/// minimal case, we're just looking at a simple prediction
+fn minimal_predict_string(before: String, am: AssertionMaster) -> String {
+    panic!("Not implemented"); // todo
+}
+
 fn parse_minimal(fname: &Path, name: String) -> Instance {
     fn read_lines(fname: &Path) -> Vec<String> {
+
         fn remove_comments(s: &str) -> Option<&str> {
             match s.find("//") {
-                Some(index) => return remove_comments(s[..index]),
+                Some(index) => return remove_comments(&s[..index]),
                 None => {
                     if !s.contains("->") && !s.contains(":") {
-                        None // cleans out empty lines. Also removes misformatted lines.
+                        return None; // cleans out empty lines. Also removes misformatted lines.
                     }
-                    Some(s)
+                    return Some(s);
                 }
             }
         }
@@ -443,12 +464,12 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
         (va, vc, ve)
     }
 
-    fn get_semantics(events: &Vec<Event>) -> SemanticEmbedding {
-        panic!("Not implemented") // todo
+    fn get_semantics(events: &Vec<Event>) -> Option<SemanticEmbedding> {
+        println!("Function get_semantics is not implemented. Yielding None for now."); // todo
+        None
     }
 
     let (mut va, mut vc, mut ve) = process_lines(read_lines(fname));
-    let mut sems = get_semantics(&ve);
 
     Instance {
         name,
@@ -460,11 +481,17 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
                                     name: fname.to_str().unwrap().to_string(), // todo error handling
                                     kind: "File".to_string(),
                                 }),
+        semantics: get_semantics(&ve),
         events: ve,
-        assertions: Some(va),
-        causal_rules: Some(vc),
+        assertions: match va.len() {
+            0 => None,
+            _ => Some(va)
+        },
+        causal_rules: match vc.len() {
+            0 => None,
+            _ => Some(vc)
+        },
         processed_data: HashMap::new(),
-        semantics: Some(sems),
     }
 }
 
@@ -526,19 +553,21 @@ fn main() {
     let mut diagnostics = generate_diagnostics(&assertions);
 
     let mut inst_vec = vec![min_inst];
-    // how we store instances is going to matter a lot.
+    // I'm still deciding how to deal with semantics and instance organization for when we have
+    // A Lot of instances.
     // important considerations: accessibility based on entities, actions, semantic content, and
     // state. I haven't decided on the best data structure for this yet.
-    // Maybe each assertion_container can have pointers to the relevant instances which are
-    // stored in a giant vector somewhere in the heap? It's okay if recalling specific instances
-    // (aka episodic memory) is slower than the assertion stuff; that's also true in human minds.
+
+    // Maybe a series of trees for each search method with the instance index in a giant vector out
+    // in the heap? It's okay if recalling specific instances (aka episodic memory) is slower than
+    // the assertion stuff; that's fine and normal in humans.
 
     // generally we would want to check + rebalance all of our assertions (and how this is done
     // given new data will be central to the functioning of this algorithm), but for now let's
     // only look at the case of the first assertions from the first instance.
 
     let mut am = AssertionMaster {
-        containers: HashMap::new()
+        containers: HashMap::new() // this might become a b tree based on semantic overlap
     };
     let mut core_ac = AssertionContainer {
         name: "core".to_string(),
@@ -546,8 +575,11 @@ fn main() {
         diagnostics,
         semantic_shape: Some(shape_from_instances(&inst_vec)),
     };
-    // we now have all of our assertions in a single container.
+    // we now have all of our assertions in a single container. put it in the master and we're good!
+
+    am.containers.insert(core_ac.name.clone(), core_ac);
 
     //next up we want to predict something.
-    let predict = "";
+    let ptext = "state(match, burning) + state(newspaper, wet) + symmetric_action(newspaper, match, touching)".to_string();
+    println!("{}", minimal_predict_string(ptext, am));
 }
