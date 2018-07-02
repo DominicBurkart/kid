@@ -17,10 +17,12 @@ use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 
 
 pub fn cur() -> Duration {
@@ -92,17 +94,20 @@ pub struct ProcessedData {
     format_name: String,
 }
 
+#[derive(Debug)]
 pub struct Action {
     instance_names: Vec<String>,
     name: String,
 }
 
+#[derive(Debug)]
 pub struct State {
     instance_names: Vec<String>,
     name: String,
 }
 
 // i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
+#[derive(Debug)]
 pub struct Entity {
     instance_names: Vec<String>,
     name: String,
@@ -121,10 +126,27 @@ pub struct EventConjugate {
     entities: Vec<Entity>,
 }
 
-pub fn contains_conjugate(inst: &Instance, conj: &EventConjugate) -> bool {
-    true // todo. attempts to match event conjugate to the instance.
+
+pub fn match_events(ev1: &Event, ev2: &Event) -> bool {
+    true // todo. attempts to match two event conjugates.
 }
 
+//pub fn fuzzy_match_events(c1: &EventConjugate, c2: &EventConjugate) -> f64 {
+//    true // todo. yields similarity of events.
+//}
+//
+//pub fn compare_event_similarity(c1: &EventConjugate, c2: &EventConjugate, c3: &EventConjugate) -> f64 {
+//    true // todo. compares similarity of c1 to c2 and c3 and yields the ratio of greater similarity of c1 to c2 than c3, [0,1] (0 -> c1 and c3 are very similar, c1 and c2 are totally dissimilar).
+//}
+//
+pub fn contains_conjugate(inst: &Instance, conj: &EventConjugate) -> bool {
+    true // todo. attempts to match event conjugate to the instance's before event conjugate.
+}
+//
+//pub fn conjugate_similarity(inst: &Instance, conj: &EventConjugate) -> bool {
+//    true // todo. attempts to match event conjugate to the instance's before event conjugate.
+//}
+//
 pub fn compare_conjugate_similarity(inst: &Instance, conj1: &EventConjugate, conj2: &EventConjugate) -> f64 {
     1. // todo. attempts to fuzzy match event conjugate to the instance. output is relative similarity to conj1 vers conj2 [0,1], bigger values => more similar
     // needs to pull apart similarities in the two conjugates
@@ -147,12 +169,11 @@ pub struct CausalRule {
 
 pub trait Effect {
     fn effect(&self) -> Vec<&(f64, EventConjugate)>;
-    fn effect_given(&self, inst: &Instance) -> Vec<(f64, &EventConjugate)>;
 }
 
 pub trait Prob {
     fn freq(&self) -> f64;
-    fn prob(&self, inst: &Instance) -> f64;
+    fn prob(self, inst: &Instance) -> f64;
 }
 
 pub struct GeometricShape {
@@ -171,17 +192,21 @@ impl Prob for CausalRule {
     fn freq(&self) -> f64 {
         self.outcome.0
     }
-    fn prob(&self, inst: &Instance) -> f64 {
+
+    fn prob(self, inst: &Instance) -> f64 {
         let mut min: f64 = self.outcome.0;
-        for ev in &self.known_exceptions {
-            if contains_conjugate(inst, &ev.before) {
+
+        for ev in self.known_exceptions {
+            let ev_before = &ev.before.unwrap();
+            if contains_conjugate(inst, &ev_before) {
                 return 0.; // causal outcome may still occur, but etiology is unknown. rely on inference.
             }
-            let cur = compare_conjugate_similarity(inst, &self.before, &ev.before);
+            let cur = compare_conjugate_similarity(inst, &self.before, ev_before);
             if cur < min {
                 min = cur;
             }
         }
+
         min
     }
 }
@@ -195,15 +220,10 @@ impl Effect for CausalRule {
         v.push(&self.outcome);
         v
     }
-    fn effect_given(&self, inst: &Instance) -> Vec<(f64, &EventConjugate)> {
-        let mut v = Vec::new();
-        v.push((self.prob(inst), &self.outcome.1));
-        v
-    }
 }
 
 pub struct Event {
-    before: EventConjugate,
+    before: Option<EventConjugate>,
     after: Option<EventConjugate>,
 }
 
@@ -224,12 +244,19 @@ pub struct Instance {
     processed_data: HashMap<String, Vec<ProcessedData>>, // String is format name
 }
 
-impl Instance {}
-
 pub struct Format {
     name: String,
     processed_from: Vec<InstanceData>, // types that can be processed into this format
 }
+
+
+//enum ProofResponse {
+//    B(bool),
+//    U(u64),
+//    I(i64),
+//    F(f64),
+//    S(String),
+//}
 
 pub struct Proof {
     format: Format,
@@ -238,23 +265,28 @@ pub struct Proof {
     // should increment until it maxes out, then stay constant
     avg_runtime: Duration,
     //averaging uses times_used
-    tier: u8, // smaller value -> more consistent
-// todo add executable or function as datafield for running proof. call it "apply"
-// apply: Fn
+    tier: u8,
+    // smaller value -> more consistent
+    conditions: Vec<Event>, // all the actions, states, entities, and relations necessary for the proof.
 }
 
-enum Response {
-    B(bool),
-    U(u64),
-    I(i64),
-    F(f64),
-    S(String),
+impl Proof {
+    fn prove(self, inst: Instance) -> bool {
+        let mut matched = false;
+        for sev in self.conditions.iter() {
+            matched = false;
+            for iev in inst.events.iter() {
+                if match_events(iev, sev) {
+                    matched = true;
+                }
+            }
+            if !matched {
+                return false;
+            }
+        }
+        true
+    }
 }
-
-trait Provable {
-    fn prove(inst: Instance) -> (Response, f64); // proof output
-}
-
 
 fn strongest_proof<'a>(map: &'a HashMap<String, Vec<Proof>>, keys: Keys<String, Vec<ProcessedData>>) -> Option<&'a Proof> {
     let mut choice: Option<&'a Proof> = None;
@@ -281,13 +313,13 @@ fn select_proof<'a>(proofs: &'a HashMap<String, Vec<Proof>>, instance: &Instance
 }
 
 pub struct Assertion {
-    proofs: HashMap<String, Vec<Proof>>,
     //format.name is the string key
+    proofs: HashMap<String, Vec<Proof>>,
     id: u64,
-    container_name: String,
     // should equal ID of AssertionContainer
+    container_name: String,
+    // duration since epoch of last_diagnostic
     last_diagnostic: Duration,
-    // since epoch
     updated_since: bool, // updated since last diagnostic
 }
 
@@ -318,7 +350,7 @@ pub struct AssertionContainer {
 }
 
 pub struct AssertionMaster {
-    containers: HashMap<String, AssertionContainer>,
+    containers: HashMap<String, AssertionContainer>, // this might become a b tree based on semantic overlap instead.
 }
 
 fn generate_assertions(inst: &Instance) -> Vec<Assertion> {
@@ -329,12 +361,14 @@ fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
     panic!("Not implemented") // todo
 }
 
+#[derive(Debug)]
 enum RelationParams {
     Entity(Entity),
     Action(Action),
     State(State),
 }
 
+#[derive(Debug)]
 struct Relation {
     params: Vec<RelationParams>,
 }
@@ -346,28 +380,34 @@ enum MinParseItem {
     E(Event),
 }
 
-fn string_min_parse(s: String) -> Option<MinParseItem> {
-    println!("Parsing line: {}", s);
-
+fn string_min_parse(s: String, e: &mut HashMap<String, Vec<String>>) -> Option<MinParseItem> {
+    println!("Parsing string: {}", s);
     // todo current problem: how do we get from relations to A / C / E ?
 
     // trivial assertion: relation exists if MRT file suggests it does, with probability based on
     // trust of the file.
 
-    fn parse_relation(relstr: &str, parstr: &str) -> Relation {
-        panic!("Not implemented")
+    fn parse_relation(relstr: &str, parstr: &str, e: &mut HashMap<String, Vec<String>>) -> Relation {
+        let r = relstr.to_string();
+        if e.contains_key(relstr) {
+            e.get_mut(relstr).unwrap().push(parstr.to_string());
+        } else {
+            e.insert(relstr.to_string(), vec![parstr.to_string()]);
+        }
+        println!("{:?}", e[relstr]);
         // todo: split params into unique values. How do we deal with multiple analogous relations?
+        panic!();
     }
 
-    fn parse_relations(s: &str) -> Vec<Relation> { // todo this should be returning a vec of relation objects, right?
+    fn parse_relations(s: &str,  e: &mut HashMap<String, Vec<String>>) -> Vec<Relation> {
         let mut vec = Vec::new();
         for m in RELATION.find_iter(s) {
-            // for each m we know that we have chars, a start parent, chars, and an end paren.
+            // for each m we know that we have chars, a start paren, chars, and an end paren.
             let fs = m.start();
             let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
             let relation = &s[fs..sp]; //relation
             let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start()]; //relation values
-            vec.push(parse_relation(relation, params));
+            vec.push(parse_relation(relation, params, e));
         }
         vec
     }
@@ -388,21 +428,26 @@ fn string_min_parse(s: String) -> Option<MinParseItem> {
         panic!("Not implemented")
     }
 
+    fn parse_event(s: String,  e: &mut HashMap<String, Vec<String>>) -> Event {
+        let relations = parse_relations(&s, e);
+
+        panic!("Not implemented")
+    }
+
     lazy_static! {
             static ref RELATION : Regex = Regex::new("[[:alpha:]]*?[(][[:alpha:]]*?[)]").unwrap();
             static ref STARTPAREN : Regex = Regex::new("[(]").unwrap();
             static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
 
-            static ref OPERATORS: [String; 4] = ["-".to_string(),
+            static ref OPERATORS : [String; 4] = ["-".to_string(),
             "+".to_string(), "->".to_string(), ":".to_string()];
 
             static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
             "state".to_string(), "entity".to_string()];
         }
 
-    // todo split processing here based on if it's an event, rule, or assertion.
 
-
+    println!("{:?}", parse_relations(&s, e));
     panic!("Not implemented"); // todo
 }
 
@@ -415,7 +460,6 @@ fn minimal_predict_string(before: String, am: AssertionMaster) -> String {
 
 fn parse_minimal(fname: &Path, name: String) -> Instance {
     fn read_lines(fname: &Path) -> Vec<String> {
-
         fn remove_comments(s: &str) -> Option<&str> {
             match s.find("//") {
                 Some(index) => return remove_comments(&s[..index]),
@@ -446,8 +490,9 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
         let mut va = Vec::new();
         let mut vc = Vec::new();
         let mut ve = Vec::new();
+        let mut ents: HashMap<String, Vec<String>> = HashMap::new();
         for astr in stringvec {
-            let m = string_min_parse(astr);
+            let m = string_min_parse(astr, &mut ents);
             match m {
                 Some(MinParseItem::A(assertion)) => {
                     va.push(assertion);
@@ -551,6 +596,7 @@ fn main() {
 
     let mut assertions = generate_assertions(&min_inst);
     let mut diagnostics = generate_diagnostics(&assertions);
+    // diagnostics will be essential for optimizing assertion calculation.
 
     let mut inst_vec = vec![min_inst];
     // I'm still deciding how to deal with semantics and instance organization for when we have
@@ -567,7 +613,7 @@ fn main() {
     // only look at the case of the first assertions from the first instance.
 
     let mut am = AssertionMaster {
-        containers: HashMap::new() // this might become a b tree based on semantic overlap
+        containers: HashMap::new()
     };
     let mut core_ac = AssertionContainer {
         name: "core".to_string(),
