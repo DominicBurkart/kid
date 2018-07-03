@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 
-
 pub fn cur() -> Duration {
     SystemTime::now().duration_since(UNIX_EPOCH).expect("SystemTime::duration_since failed")
 }
@@ -142,6 +141,7 @@ pub fn match_events(ev1: &Event, ev2: &Event) -> bool {
 pub fn contains_conjugate(inst: &Instance, conj: &EventConjugate) -> bool {
     true // todo. attempts to match event conjugate to the instance's before event conjugate.
 }
+
 //
 //pub fn conjugate_similarity(inst: &Instance, conj: &EventConjugate) -> bool {
 //    true // todo. attempts to match event conjugate to the instance's before event conjugate.
@@ -380,15 +380,27 @@ enum MinParseItem {
     E(Event),
 }
 
-fn string_min_parse(s: String, e: &mut HashMap<String, Vec<String>>) -> Option<MinParseItem> {
+fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>) -> Option<MinParseItem> {
     println!("Parsing string: {}", s);
     // todo current problem: how do we get from relations to A / C / E ?
 
-    // trivial assertion: relation exists if MRT file suggests it does, with probability based on
+    // trivial implementation: relation exists if MRT file suggests it does, with probability based on
     // trust of the file.
 
+    lazy_static! {
+        pub static ref RELATION : Regex = Regex::new("[[:alpha:]]*?[(][[:alpha:]]*?[)]").unwrap();
+        pub static ref STARTPAREN : Regex = Regex::new("[(]").unwrap();
+        pub static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
+
+        pub static ref OPERATORS : [String; 4] = ["-".to_string(),
+        "+".to_string(), "->".to_string(), ":".to_string()];
+
+        pub static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
+        "state".to_string(), "entity".to_string()];
+    }
+
     fn parse_relation(relstr: &str, parstr: &str, e: &mut HashMap<String, Vec<String>>) -> Relation {
-        let r = relstr.to_string();
+        println!("{}", parstr.to_string());
         if e.contains_key(relstr) {
             e.get_mut(relstr).unwrap().push(parstr.to_string());
         } else {
@@ -399,7 +411,7 @@ fn string_min_parse(s: String, e: &mut HashMap<String, Vec<String>>) -> Option<M
         panic!();
     }
 
-    fn parse_relations(s: &str,  e: &mut HashMap<String, Vec<String>>) -> Vec<Relation> {
+    let parse_relations = |s: &str, e: &mut HashMap<String, Vec<String>>| -> Vec<Relation> {
         let mut vec = Vec::new();
         for m in RELATION.find_iter(s) {
             // for each m we know that we have chars, a start paren, chars, and an end paren.
@@ -410,9 +422,9 @@ fn string_min_parse(s: String, e: &mut HashMap<String, Vec<String>>) -> Option<M
             vec.push(parse_relation(relation, params, e));
         }
         vec
-    }
+    };
 
-    fn parse_assertion(s: String) -> Assertion {
+    fn parse_assertion(s: &str, e: &mut HashMap<String, Vec<String>>) -> Assertion {
         let mut before = EventConjugate {
             actions: Vec::new(),
             states: Vec::new(),
@@ -428,27 +440,42 @@ fn string_min_parse(s: String, e: &mut HashMap<String, Vec<String>>) -> Option<M
         panic!("Not implemented")
     }
 
-    fn parse_event(s: String,  e: &mut HashMap<String, Vec<String>>) -> Event {
-        let relations = parse_relations(&s, e);
+    fn parse_event(s: &str, e: &mut HashMap<String, Vec<String>>) -> Event {
 
         panic!("Not implemented")
     }
 
-    lazy_static! {
-            static ref RELATION : Regex = Regex::new("[[:alpha:]]*?[(][[:alpha:]]*?[)]").unwrap();
-            static ref STARTPAREN : Regex = Regex::new("[(]").unwrap();
-            static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
+    enum ce {
+        A,
+        E,
+        Bad
+    }
 
-            static ref OPERATORS : [String; 4] = ["-".to_string(),
-            "+".to_string(), "->".to_string(), ":".to_string()];
+    let c = |str: &str| -> ce {
 
-            static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
-            "state".to_string(), "entity".to_string()];
+        let n = |v: std::option::Option<usize>| -> bool {
+            match v {
+                Some(_) => true,
+                None => false
+            }
+        };
+
+        if n(OPERATORS[2].find(str)) && !n(OPERATORS[3].find(str)) {
+            ce::E
+        } else if !n(OPERATORS[2].find(str)) && n(OPERATORS[3].find(str)) {
+            ce::A
+        } else {
+            ce::Bad
         }
+    };
 
+    println!("{:?}", parse_relations(s, e));
 
-    println!("{:?}", parse_relations(&s, e));
-    panic!("Not implemented"); // todo
+    match c(&s) {
+        ce::A => Some(MinParseItem::A(parse_assertion(s, e))),
+        ce::E => Some(MinParseItem::E(parse_event(s, e))),
+        ce::Bad => None
+    }
 }
 
 /// Usually kid will be constantly predicting a whole bunch of things and processing those
@@ -492,7 +519,7 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
         let mut ve = Vec::new();
         let mut ents: HashMap<String, Vec<String>> = HashMap::new();
         for astr in stringvec {
-            let m = string_min_parse(astr, &mut ents);
+            let m = string_min_parse(&astr, &mut ents);
             match m {
                 Some(MinParseItem::A(assertion)) => {
                     va.push(assertion);
