@@ -380,15 +380,18 @@ enum MinParseItem {
     E(Event),
 }
 
-fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>) -> Option<MinParseItem> {
-    println!("Parsing string: {}", s);
+fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashMap<String, (String, String)>) -> Option<MinParseItem> {
+    let debug = true;
+    if debug {
+        println!("Parsing string: {}", s);
+    }
     // todo current problem: how do we get from relations to A / C / E ?
 
     // trivial implementation: relation exists if MRT file suggests it does, with probability based on
     // trust of the file.
 
     lazy_static! {
-        pub static ref RELATION : Regex = Regex::new("[[:alpha:]]*?[(][[:alpha:]]*?[)]").unwrap();
+        pub static ref RELATION : Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
         pub static ref STARTPAREN : Regex = Regex::new("[(]").unwrap();
         pub static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
 
@@ -399,32 +402,99 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>) -> Option<Min
         "state".to_string(), "entity".to_string()];
     }
 
-    fn parse_relation(relstr: &str, parstr: &str, e: &mut HashMap<String, Vec<String>>) -> Relation {
-        println!("{}", parstr.to_string());
-        if e.contains_key(relstr) {
-            e.get_mut(relstr).unwrap().push(parstr.to_string());
-        } else {
-            e.insert(relstr.to_string(), vec![parstr.to_string()]);
+    let primitive = |s: &str| -> bool {
+        match s {
+            "action" => true,
+            "state" => true,
+            "entity" => true,
+            _ => false
         }
-        println!("{:?}", e[relstr]);
-        // todo: split params into unique values. How do we deal with multiple analogous relations?
-        panic!();
-    }
+    };
 
-    let parse_relations = |s: &str, e: &mut HashMap<String, Vec<String>>| -> Vec<Relation> {
+    let prim_rel = |relstr: &str, parstr: &str| -> Relation {
+        match relstr {
+            "action" => {
+                panic!("Not implemented")
+            }
+            "state" => {
+                panic!("Not implemented")
+            }
+            "entity" => {
+                panic!("Not implemented")
+            }
+            _ => panic!("Non-primary assertion passed to prim_rel. Unable to parse.")
+        }
+    };
+
+    fn fill_in_variables(params: &str, unpacked: &str) -> Vec<Relation> {
+        let mut relations = Vec::new();
+        // uh..
+        relations
+    };
+
+    let mut parse_relations = |s: &str| -> Vec<Relation> { panic!("This should be overwritten.") };
+
+    let mut parse_relations = |s: &str| -> Vec<Relation> {
+        let parse_relation = |relstr: &str, parstr: &str| -> Vec<Relation> {
+            fn spl<'a>(s: &'a str) -> Vec<&'a str> {
+                let mut vec: Vec<&str> = Vec::new();
+                for val in s.split(",") {
+                    vec.push(val.trim());
+                }
+                vec
+            }
+
+            let &(ref original, ref unpacked) = &r[relstr];
+
+            let mut parmap = HashMap::new();
+            let keys = spl(&original);
+            let vals = spl(parstr);
+
+            assert_eq!(keys.len(), vals.len());
+
+            for i in 0..keys.len() {
+                parmap.insert(keys[i], vals[i]);
+            }
+
+            //println!("{:?}", &e[relstr]);
+
+            parse_relations(&unpacked) // recurse until the relations have all been simplified.
+        };
+
+        if debug {
+            println!("in parse_relations");
+        }
         let mut vec = Vec::new();
         for m in RELATION.find_iter(s) {
+            if debug {
+                println!("iterating");
+            }
             // for each m we know that we have chars, a start paren, chars, and an end paren.
-            let fs = m.start();
-            let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
-            let relation = &s[fs..sp]; //relation
-            let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start()]; //relation values
-            vec.push(parse_relation(relation, params, e));
+            let (relation, params) = {
+                let fs = m.start();
+                let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
+                if debug {
+                    println!("relation start index: {}", fs);
+                    println!("relation end index: {}", sp);
+                }
+                let relation = &s[fs..sp]; //relation
+                if debug {
+                    println!("relation: {}", relation);
+                }
+                let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start() + sp + 1]; //relation values
+                (relation, params)
+            };
+            if primitive(relation) {
+                vec.push(prim_rel(relation, params));
+            } else {
+                vec.extend(parse_relation(relation, params));
+            }
         }
         vec
     };
 
-    fn parse_assertion(s: &str, e: &mut HashMap<String, Vec<String>>) -> Assertion {
+    let parse_assertion = |s: &str, e: &mut HashMap<String, Vec<String>>| -> Assertion {
+        println!("in parse_assertion");
         let mut before = EventConjugate {
             actions: Vec::new(),
             states: Vec::new(),
@@ -438,21 +508,21 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>) -> Option<Min
         };
 
         panic!("Not implemented")
-    }
+    };
 
     fn parse_event(s: &str, e: &mut HashMap<String, Vec<String>>) -> Event {
-
         panic!("Not implemented")
     }
 
-    enum ce {
+    enum Ce {
         A,
+        // assertion
         E,
-        Bad
+        // entity
+        Bad,
     }
 
-    let c = |str: &str| -> ce {
-
+    let c = |str: &str| -> Ce {
         let n = |v: std::option::Option<usize>| -> bool {
             match v {
                 Some(_) => true,
@@ -461,20 +531,20 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>) -> Option<Min
         };
 
         if n(OPERATORS[2].find(str)) && !n(OPERATORS[3].find(str)) {
-            ce::E
+            Ce::E
         } else if !n(OPERATORS[2].find(str)) && n(OPERATORS[3].find(str)) {
-            ce::A
+            Ce::A
         } else {
-            ce::Bad
+            Ce::Bad
         }
     };
 
-    println!("{:?}", parse_relations(s, e));
+    println!("{:?}", parse_relations(s));
 
     match c(&s) {
-        ce::A => Some(MinParseItem::A(parse_assertion(s, e))),
-        ce::E => Some(MinParseItem::E(parse_event(s, e))),
-        ce::Bad => None
+        Ce::A => Some(MinParseItem::A(parse_assertion(s, e))),
+        Ce::E => Some(MinParseItem::E(parse_event(s, e))),
+        Ce::Bad => None
     }
 }
 
@@ -512,14 +582,15 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
         out
     }
 
+    let mut recursive_relation_defs: HashMap<String, (String, String)> = HashMap::new();
 
-    fn process_lines(stringvec: Vec<String>) -> (Vec<Assertion>, Vec<CausalRule>, Vec<Event>) {
+    let mut process_lines = |stringvec: Vec<String>| -> (Vec<Assertion>, Vec<CausalRule>, Vec<Event>) {
         let mut va = Vec::new();
         let mut vc = Vec::new();
         let mut ve = Vec::new();
         let mut ents: HashMap<String, Vec<String>> = HashMap::new();
         for astr in stringvec {
-            let m = string_min_parse(&astr, &mut ents);
+            let m = string_min_parse(&astr, &mut ents, &mut recursive_relation_defs);
             match m {
                 Some(MinParseItem::A(assertion)) => {
                     va.push(assertion);
@@ -534,7 +605,7 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
             }
         }
         (va, vc, ve)
-    }
+    };
 
     fn get_semantics(events: &Vec<Event>) -> Option<SemanticEmbedding> {
         println!("Function get_semantics is not implemented. Yielding None for now."); // todo
