@@ -5,6 +5,7 @@ authors = ["Dominic Burkart <dominicburkart@gmail.com>"]
 
 [dependencies]
 ndarray = "0.11"
+quick-error = "*"
 #ndarray = { version = "0.11", features = ["blas"] } todo find a way to build ndarray with optimization
 #blas-src = { version = "0.1", default-features = false, features = ["openblas"] }
 #openblas-src = { version = "0.5", default-features = false, features = ["cblas", "system"] }

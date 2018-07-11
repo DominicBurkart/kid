@@ -10,6 +10,8 @@ extern crate geo;
 extern crate regex;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate quick_error;
 
 use bytes::Bytes;
 use geo::{Bbox, Coordinate, Point, Polygon};
@@ -20,6 +22,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use std::panic;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -75,11 +78,13 @@ pub struct SemanticEmbedding {
     meaning: String,
 }
 
+#[derive(Debug)]
 pub struct InstMetaData {
     name: String,
     kind: String,
 }
 
+#[derive(Debug)]
 pub enum InstanceData {
     // silly way of saying I have no idea how to store instancedata. maybe just as files?
     Str(String, InstMetaData),
@@ -88,6 +93,7 @@ pub enum InstanceData {
     Ar2(Array2<f64>, InstMetaData),
 }
 
+#[derive(Debug)]
 pub struct ProcessedData {
     name: String,
     format_name: String,
@@ -112,6 +118,7 @@ pub struct Entity {
     name: String,
 }
 
+#[derive(Debug)]
 pub struct PhysicalEntity {
     instance_name: String,
     name: String,
@@ -119,6 +126,7 @@ pub struct PhysicalEntity {
     scale: u64, // log scale where 0 == subatomic
 }
 
+#[derive(Debug)]
 pub struct EventConjugate {
     actions: Vec<Action>,
     states: Vec<State>,
@@ -148,7 +156,7 @@ pub fn contains_conjugate(inst: &Instance, conj: &EventConjugate) -> bool {
 //}
 //
 pub fn compare_conjugate_similarity(inst: &Instance, conj1: &EventConjugate, conj2: &EventConjugate) -> f64 {
-    1. // todo. attempts to fuzzy match event conjugate to the instance. output is relative similarity to conj1 vers conj2 [0,1], bigger values => more similar
+    panic!("Not implemented") // todo. attempts to fuzzy match event conjugate to the instance. output is relative similarity to conj1 vers conj2 [0,1], bigger values => more similar
     // needs to pull apart similarities in the two conjugates
 }
 
@@ -159,6 +167,7 @@ pub fn compare_conjugate_similarity(inst: &Instance, conj1: &EventConjugate, con
 /// paper will light on fire, unless the paper is wet. The additional state of wetness precludes the
 /// general causal rule that paper will burn when exposed to flame). These exceptions are generalized
 /// by finding how similar a given scene is to the general rule versus the exception.
+#[derive(Debug)]
 pub struct CausalRule {
     name: String,
     before: EventConjugate,
@@ -176,6 +185,7 @@ pub trait Prob {
     fn prob(self, inst: &Instance) -> f64;
 }
 
+#[derive(Debug)]
 pub struct GeometricShape {
     dimensions: u32,
     points: Vec<Vec<f64>>,
@@ -222,6 +232,7 @@ impl Effect for CausalRule {
     }
 }
 
+#[derive(Debug)]
 pub struct Event {
     before: Option<EventConjugate>,
     after: Option<EventConjugate>,
@@ -244,6 +255,7 @@ pub struct Instance {
     processed_data: HashMap<String, Vec<ProcessedData>>, // String is format name
 }
 
+#[derive(Debug)]
 pub struct Format {
     name: String,
     processed_from: Vec<InstanceData>, // types that can be processed into this format
@@ -258,6 +270,7 @@ pub struct Format {
 //    S(String),
 //}
 
+#[derive(Debug)]
 pub struct Proof {
     format: Format,
     // matches name field of Format this works on
@@ -312,6 +325,8 @@ fn select_proof<'a>(proofs: &'a HashMap<String, Vec<Proof>>, instance: &Instance
     strongest_proof(proofs, instance.processed_data.keys())
 }
 
+
+#[derive(Debug)]
 pub struct Assertion {
     //format.name is the string key
     proofs: HashMap<String, Vec<Proof>>,
@@ -381,21 +396,30 @@ enum MinParseItem {
 }
 
 fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashMap<String, (String, String)>) -> Option<MinParseItem> {
+    quick_error! {
+        #[derive(Debug)]
+        pub enum KidError {
+            UndefinedComplexRelation {
+                description("Undefined complex relation")
+            }
+        }
+    }
+
     let debug = true;
     if debug {
         println!("Parsing string: {}", s);
     }
-    // todo current problem: how do we get from relations to A / C / E ?
+// todo current problem: how do we get from relations to A / C / E ?
 
-    // trivial implementation: relation exists if MRT file suggests it does, with probability based on
-    // trust of the file.
+// trivial implementation: relation exists if MRT file suggests it does, with probability based on
+// trust of the file.
 
     lazy_static! {
-        pub static ref RELATION : Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
-        pub static ref STARTPAREN : Regex = Regex::new("[(]").unwrap();
+        pub static ref RELATION: Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
+        pub static ref STARTPAREN: Regex = Regex::new("[(]").unwrap();
         pub static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
 
-        pub static ref OPERATORS : [String; 4] = ["-".to_string(),
+        pub static ref OPERATORS: [String; 4] = ["-".to_string(),
         "+".to_string(), "->".to_string(), ":".to_string()];
 
         pub static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
@@ -428,14 +452,14 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
 
     fn fill_in_variables(params: &str, unpacked: &str) -> Vec<Relation> {
         let mut relations = Vec::new();
-        // uh..
+// uh.. todo
         relations
     };
 
-    let mut parse_relations = |s: &str| -> Vec<Relation> { panic!("This should be overwritten.") };
+    let mut parse_relations = |s: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> { panic!("This should be overwritten.") };
 
-    let mut parse_relations = |s: &str| -> Vec<Relation> {
-        let parse_relation = |relstr: &str, parstr: &str| -> Vec<Relation> {
+    let mut parse_relations = |s: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
+        let mut parse_relation = |relstr: &str, parstr: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
             fn spl<'a>(s: &'a str) -> Vec<&'a str> {
                 let mut vec: Vec<&str> = Vec::new();
                 for val in s.split(",") {
@@ -444,21 +468,55 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
                 vec
             }
 
-            let &(ref original, ref unpacked) = &r[relstr];
-
-            let mut parmap = HashMap::new();
-            let keys = spl(&original);
-            let vals = spl(parstr);
-
-            assert_eq!(keys.len(), vals.len());
-
-            for i in 0..keys.len() {
-                parmap.insert(keys[i], vals[i]);
+            if !r.contains_key(relstr) {
+                return Err(KidError::UndefinedComplexRelation);
             }
 
-            //println!("{:?}", &e[relstr]);
+            let mapped: String = {
+                // "mapped" is the definition of the complex relation with the variables filled in.
 
-            parse_relations(&unpacked) // recurse until the relations have all been simplified.
+                // if we've seen this key before, let's unpack it.
+                let &(ref or, ref un) = r.get(relstr).unwrap();
+                let original = or.to_string();
+                let unpacked = un.to_string();
+                let mut parmap = HashMap::new();
+                let keys = spl(&original);
+                let vals = spl(parstr);
+                assert_eq!(keys.len(), vals.len());
+                for i in 0..keys.len() {
+                    parmap.insert(keys[i], vals[i]);
+                }
+
+                let n = |s: &str, i: usize| -> usize {
+                    // remainder of string or next alphanumeric / underscore sequence
+                    match RELATION.find(&s[i..]) {
+                        Some(relmatch) => relmatch.start(),
+                        None => s.len()
+                    }
+                };
+
+                let mut lasti = 0;
+                let mut out = "".to_string();
+
+                for pmatch in STARTPAREN.find_iter(un) {
+                    let startp = pmatch.start();
+
+                    out = out + &un[lasti..startp] + "("; // start with the relation and paren
+
+                    let endp = ENDPAREN.find(&un[startp..]).unwrap().start();
+                    for defparam in spl(&un[startp + 1..endp]).into_iter() {
+                        if parmap.contains_key(defparam) {
+                            out = out + " " + parmap.get(defparam).unwrap() + ",";
+                        } else {
+                            out = out + " " + defparam + ",";
+                        }
+                    }
+                    out = out[..out.len() - 1].to_string() + &un[endp..n(un, endp)];
+                }
+                out.to_string()
+            };
+
+            return parse_relations(&mapped, r); // recurse until the relations have all been simplified.
         };
 
         if debug {
@@ -469,7 +527,7 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
             if debug {
                 println!("iterating");
             }
-            // for each m we know that we have chars, a start paren, chars, and an end paren.
+// for each m we know that we have chars, a start paren, chars, and an end paren.
             let (relation, params) = {
                 let fs = m.start();
                 let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
@@ -487,10 +545,20 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
             if primitive(relation) {
                 vec.push(prim_rel(relation, params));
             } else {
-                vec.extend(parse_relation(relation, params));
+                match parse_relation(relation, params, r) {
+                    Ok(resp) => vec.extend(resp),
+                    Err(KidError::UndefinedComplexRelation) => {
+                        if vec.len() == 0 {
+                            r.insert(relation.to_string(), (params.to_string(), s[OPERATORS[3].find(&s).unwrap() + 1..].to_string()));
+                        } else {
+                            panic!("Undeclared complex relation")
+                        }
+                    }
+                };
             }
         }
-        vec
+        println!("{:?}", vec);
+        Ok(vec)
     };
 
     let parse_assertion = |s: &str, e: &mut HashMap<String, Vec<String>>| -> Assertion {
@@ -510,13 +578,28 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
         panic!("Not implemented")
     };
 
-    fn parse_event(s: &str, e: &mut HashMap<String, Vec<String>>) -> Event {
+    let parse_event = |s: &str, e: &mut HashMap<String, Vec<String>>| -> Event {
+        let mut before = EventConjugate {
+            actions: Vec::new(),
+            states: Vec::new(),
+            entities: Vec::new(),
+        };
+
+        let mut after = EventConjugate {
+            actions: Vec::new(),
+            states: Vec::new(),
+            entities: Vec::new(),
+        };
+
         panic!("Not implemented")
-    }
+    };
 
     enum Ce {
         A,
         // assertion
+//        R,
+        // complex relation declaration
+//        C, // causal rule
         E,
         // entity
         Bad,
@@ -530,16 +613,17 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
             }
         };
 
-        if n(OPERATORS[2].find(str)) && !n(OPERATORS[3].find(str)) {
+        if n(OPERATORS[2].find(str)) & &!n(OPERATORS[3].find(str)) {
             Ce::E
-        } else if !n(OPERATORS[2].find(str)) && n(OPERATORS[3].find(str)) {
+        } else if !n(OPERATORS[2].find(str)) & &n(OPERATORS[3].find(str)) {
+//            if is_complex_relation(str) {
+//                Ce::R
+//            }
             Ce::A
         } else {
             Ce::Bad
         }
     };
-
-    println!("{:?}", parse_relations(s));
 
     match c(&s) {
         Ce::A => Some(MinParseItem::A(parse_assertion(s, e))),
@@ -613,6 +697,10 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
     }
 
     let (mut va, mut vc, mut ve) = process_lines(read_lines(fname));
+
+    println!("{:?}", va);
+    println!("{:?}", vc);
+    println!("{:?}", ve);
 
     Instance {
         name,
