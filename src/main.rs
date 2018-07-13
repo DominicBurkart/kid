@@ -616,22 +616,6 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         Ok(vec)
     };
 
-    let mut parse_assertion = |s: &str| -> Assertion {
-        let mut before = EventConjugate {
-            actions: Vec::new(),
-            states: Vec::new(),
-            entities: Vec::new(),
-        };
-
-        let mut after = EventConjugate {
-            actions: Vec::new(),
-            states: Vec::new(),
-            entities: Vec::new(),
-        };
-
-        panic!("Not implemented")
-    };
-
     let mut parse_event = |es: &str, r: &mut HashMap<String, (String, String)>| -> Event {
         fn vec_to_conjugate(v: Vec<Relation>) -> EventConjugate {
             let mut o = EventConjugate {
@@ -683,6 +667,16 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             before,
             after,
         }
+    };
+
+    let mut parse_assertion = |s: &str, r: &mut HashMap<String, (String, String)>| -> Assertion {
+//        let model = parse_event(s, r);
+//
+//        Assertion {
+//            proofs
+//            model
+//        }
+        panic!("parse_assertion unimplemented")
     };
 
     enum Ce {
@@ -754,7 +748,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             if debug {
                 println!("Assertion detected. Parsing.")
             }
-            Some(MinParseItem::A(parse_assertion(s)))
+            Some(MinParseItem::A(parse_assertion(s, r)))
         }
         Ce::E => {
             if debug {
@@ -903,11 +897,11 @@ mod tests {
 
 // check symmetric
                 assert_eq!(euc_dist(v2, v1), euc_dist(v1, v2));
-                assert!(cos_dist(v2, v1).is_nan() | | (cos_dist(v2, v1) == cos_dist(v1, v2)));
+                assert!(cos_dist(v2, v1).is_nan() || (cos_dist(v2, v1) == cos_dist(v1, v2)));
 
 // distance from self should be zero
                 assert_eq!(0., euc_dist(v1, v1));
-                assert!(cos_dist(v1, v1).is_nan() | | 0 == (10000000. * cos_dist(v1, v1)).round());
+                assert!(cos_dist(v1, v1).is_nan() || 0. == (10000000. * cos_dist(v1, v1)).round());
 // (account for rounding errors with cos_dist)
 
 // distance between any non-identical vectors should not be zero

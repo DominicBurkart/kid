@@ -9,3 +9,4 @@ Cargo.lock
 .idea/markdown-navigator/profiles_settings.xml
 .idea/kid.iml
 .idea/emacs.xml
+*.xml
