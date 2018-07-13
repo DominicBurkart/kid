@@ -11,11 +11,10 @@
 // todo create syntax for sets of actions, of entities, and of relations.
 // todo create syntax for temporality, continuous transformations.
 
-//abstract assertion. used for parsing relations.
+//Defining a complex relation (uses the same format as an assertion).
 symmetric_action(_ent1, _ent2, _act) : action(_ent1, _ent2, _act) + action(_ent2, _ent1, _act) // declare new relations based on previous ones.
-state(_ent, _stat) : entity(_ent) // allows implicit declaration of entities
 
-//less abstract assertion. Used for inheritance in relations.
+//Assertion. Here used for inheritance in relations.
 action(_ent1, _ent2, submerge) : symmetric_action(_ent1, _ent2, touching) // atomic actions can be declared as implying other actions.
 
 // conjugated event + an assertion.

@@ -19,10 +19,8 @@ use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use std::panic;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -31,6 +29,7 @@ pub fn cur() -> Duration {
     SystemTime::now().duration_since(UNIX_EPOCH).expect("SystemTime::duration_since failed")
 }
 
+#[derive(Clone)]
 pub struct SemanticShape {
     points: Vec<[f64; 300]>
 }
@@ -78,13 +77,13 @@ pub struct SemanticEmbedding {
     meaning: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InstMetaData {
     name: String,
     kind: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InstanceData {
     // silly way of saying I have no idea how to store instancedata. maybe just as files?
     Str(String, InstMetaData),
@@ -99,7 +98,7 @@ pub struct ProcessedData {
     format_name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Action {
     source: String,
     //entity id
@@ -108,7 +107,7 @@ pub struct Action {
     name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct State {
     ent: String,
     // entity id
@@ -116,7 +115,7 @@ pub struct State {
 }
 
 // i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Entity {
     name: String,
 }
@@ -129,7 +128,7 @@ pub struct PhysicalEntity {
     scale: u64, // log scale where 0 == subatomic
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EventConjugate {
     actions: Vec<Action>,
     states: Vec<State>,
@@ -235,7 +234,7 @@ impl Effect for CausalRule {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Event {
     before: Option<EventConjugate>,
     after: Option<EventConjugate>,
@@ -258,7 +257,7 @@ pub struct Instance {
     processed_data: HashMap<String, Vec<ProcessedData>>, // String is format name
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Format {
     name: String,
     processed_from: Vec<InstanceData>, // types that can be processed into this format
@@ -273,7 +272,7 @@ pub struct Format {
 //    S(String),
 //}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Proof {
     format: Format,
     // matches name field of Format this works on
@@ -330,11 +329,11 @@ fn select_proof<'a>(proofs: &'a HashMap<String, Vec<Proof>>, instance: &Instance
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assertion {
     //format.name is the string key
     proofs: HashMap<String, Vec<Proof>>,
-    id: u64,
+    id: usize,
     // should equal ID of AssertionContainer
     container_name: String,
     // duration since epoch of last_diagnostic
@@ -353,6 +352,7 @@ impl Assertion {
     }
 }
 
+#[derive(Clone)]
 pub struct AssertionDiagnostic {}
 
 impl AssertionDiagnostic {
@@ -360,12 +360,22 @@ impl AssertionDiagnostic {
 // todo: outlier analysis on proof outputs
 }
 
+#[derive(Clone)]
 pub struct AssertionContainer {
     name: String,
     semantic_shape: Option<SemanticShape>,
     // space of contained assertions
     assertions: Vec<Assertion>,
     diagnostics: Vec<AssertionDiagnostic>,
+}
+
+impl AssertionContainer {
+    fn next_id(&self) -> usize { self.assertions.len() }
+    pub fn add(&mut self, mut a: Assertion) -> bool {
+        a.id = self.next_id();
+        self.assertions.push(a);
+        true
+    }
 }
 
 pub struct AssertionMaster {
@@ -408,7 +418,7 @@ fn spl<'a>(s: &'a str) -> Vec<&'a str> {
 }
 
 
-fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a mut HashMap<String, (String, String)>) -> Option<MinParseItem> {
+fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a mut HashMap<String, (String, String)>, filepath: &str) -> Option<MinParseItem> {
     quick_error! {
         #[derive(Debug)]
         pub enum KidError {
@@ -670,13 +680,31 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
     };
 
     let mut parse_assertion = |s: &str, r: &mut HashMap<String, (String, String)>| -> Assertion {
-//        let model = parse_event(s, r);
-//
-//        Assertion {
-//            proofs
-//            model
-//        }
-        panic!("parse_assertion unimplemented")
+        let proof = Proof {
+            format: Format {
+                name: "MRT".to_string(),
+                processed_from: vec![InstanceData::Pat(PathBuf::from(filepath), InstMetaData {
+                    name: "MRT".to_string(),
+                    kind: "txt".to_string(),
+                })],
+            },
+            times_used: 0,
+            avg_runtime: Duration::new(0, 0),
+            tier: 0,
+            conditions: vec![parse_event(&COLON.replace_all(s, "->").into_owned(), r)],
+        };
+
+        let mut proofs = HashMap::new();
+        proofs.insert(proof.format.name.clone(), vec![proof]);
+
+        Assertion {
+            container_name: "core".to_string(),
+            id: 0, // overwritten when added to assertion container.
+            proofs,
+            updated_since: true,
+            last_diagnostic: Duration::new(0, 0),
+            //duration: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+        }
     };
 
     enum Ce {
@@ -815,7 +843,7 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
         let mut ve = Vec::new();
         let mut ents: HashMap<String, Vec<String>> = HashMap::new();
         for astr in stringvec {
-            let m = string_min_parse(&astr, &mut ents, &mut recursive_relation_defs);
+            let m = string_min_parse(&astr, &mut ents, &mut recursive_relation_defs, &fname.to_str().unwrap());
             match m {
                 Some(MinParseItem::A(assertion)) => {
                     va.push(assertion);
@@ -826,6 +854,7 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
                 Some(MinParseItem::E(event)) => {
                     ve.push(event);
                 }
+
                 None => (),
             }
         }
@@ -919,13 +948,20 @@ fn main() {
 
     let min_txt_path = Path::new("src/minimal.txt");
 
-    let min_inst = parse_minimal(min_txt_path, "minimal".to_string());
+    let mut min_inst = parse_minimal(min_txt_path, "minimal".to_string());
 
     let mut assertions = generate_assertions(&min_inst);
+    match min_inst.assertions.clone() {
+        Some(v) => {
+            assertions.extend(v)
+        }
+        None => (),
+    };
     let mut diagnostics = generate_diagnostics(&assertions);
 // diagnostics will be essential for optimizing assertion calculation.
 
-    let mut inst_vec = vec![min_inst];
+    let mut
+    inst_vec = vec![min_inst];
 // I'm still deciding how to deal with semantics and instance organization for when we have
 // A Lot of instances.
 // important considerations: accessibility based on entities, actions, semantic content, and
@@ -944,12 +980,15 @@ fn main() {
     };
     let mut core_ac = AssertionContainer {
         name: "core".to_string(),
-        assertions,
+        assertions: Vec::new(),
         diagnostics,
         semantic_shape: Some(shape_from_instances(&inst_vec)),
     };
-// we now have all of our assertions in a single container. put it in the master and we're good!
+    for ass in assertions.into_iter() {
+        core_ac.add(ass);
+    }
 
+// we now have all of our assertions in a single container. put it in the master and we're good!
     am.containers.insert(core_ac.name.clone(), core_ac);
 
 //next up we want to predict something.
