@@ -407,7 +407,8 @@ fn spl<'a>(s: &'a str) -> Vec<&'a str> {
     vec
 }
 
-fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashMap<String, (String, String)>) -> Option<MinParseItem> {
+
+fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a mut HashMap<String, (String, String)>) -> Option<MinParseItem> {
     quick_error! {
         #[derive(Debug)]
         pub enum KidError {
@@ -416,15 +417,6 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
             }
         }
     }
-
-    let debug = true;
-    if debug {
-        println!("Parsing string: {}", s);
-    }
-// todo current problem: how do w e get from relations to A / C / E ?
-
-// trivial implementation: relation exists if MRT file suggests it does, with probability based on
-// trust of the file.
 
     lazy_static! {
         pub static ref RELATION: Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
@@ -437,10 +429,17 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
         "state".to_string(), "entity".to_string()];
     }
 
-    let primitive = |s: &str| -> bool {
-        if debug {
-            println!("Checking if {} is a primitive relation.", s);
-        }
+
+    // trivial implementation: relation exists if MRT file suggests it does, with probability based on
+// trust of the file.
+    let debug = true;
+
+    if debug {
+        println!("Parsing string: {}", s);
+    }
+
+
+    fn primitive(s: &str) -> bool {
         match s {
             "action" => true,
             "state" => true,
@@ -449,65 +448,92 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
         }
     };
 
-    let prim_rel = |relstr: &str, parstr: &str| -> Relation {
-        let splitted = spl(parstr);
-        match relstr {
-            "action" => {
-                Relation {
-                    params: vec![
-                        RelationParams::Action(
-                            Action {
-                                source: splitted[0].to_string(),
-                                target: splitted[1].to_string(),
-                                name: splitted[2].to_string(),
-                            }
-                        )
-                    ]
-                }
-            }
-            "state" => {
-                Relation {
-                    params: vec![
-                        RelationParams::State(
-                            State {
-                                ent: splitted[0].to_string(),
-                                name: splitted[1].to_string(),
-                            }
-                        )
-                    ]
-                }
-            }
-            "entity" => {
-                Relation {
-                    params: vec![
-                        RelationParams::Entity(
-                            Entity {
-                                name: parstr.to_string(),
-                            }
-                        )
-                    ]
-                }
-            }
-            _ => panic!("Non-primary assertion passed to prim_rel. Unable to parse.")
+    fn rel_and_params<'r>(m: regex::Match, s: &'r str, debug: bool) -> (&'r str, &'r str) {
+        let fs = m.start();
+        let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
+        if debug {
+            println!("relation start index: {}", fs);
+            println!("relation end index: {}", sp);
         }
+        let relation = &s[fs..sp]; //relation
+        if debug {
+            println!("relation: {}", relation);
+            println!("string: {}", s);
+        }
+        let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start() + sp + 1]; //relation values
+        (relation, params)
     };
 
-//    fn fill_in_variables(params: &str, unpacked: &str) -> Vec<Relation> {
+    //    fn fill_in_variables(params: &str, unpacked: &str) -> Vec<Relation> {
 //        let mut relations = Vec::new();
 //// uh.. todo
 //        relations
 //    };
+    fn parsplit(es: &str, split: usize, r: &mut HashMap<String, (String, String)>, debug: bool) -> (Result<Vec<Relation>, KidError>, Result<Vec<Relation>, KidError>) {
+        let (s1, s2) = es.split_at(split);
+        if s2.starts_with(":") {
+            (parse_relations(s1, r, debug),
+             parse_relations(&s2[1..], r, debug))
+        } else if s2.starts_with("->") {
+            (parse_relations(s1, r, debug),
+             parse_relations(&s2[2..], r, debug))
+        } else {
+            panic!("Bad separator")
+        }
+    }
 
-    let mut parse_relations = |s: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> { panic!("This should be overwritten.") };
+    fn parse_relations<'b>(s: &'b str, r: &mut HashMap<String, (String, String)>, debug: bool) -> Result<Vec<Relation>, KidError> {
+        let prim_rel = |relstr: &str, parstr: &str| -> Relation {
+            match relstr {
+                "action" => {
+                    let splitted = spl(parstr);
+                    Relation {
+                        params: vec![
+                            RelationParams::Action(
+                                Action {
+                                    source: splitted[0].to_string(),
+                                    target: splitted[1].to_string(),
+                                    name: splitted[2].to_string(),
+                                }
+                            )
+                        ]
+                    }
+                }
+                "state" => {
+                    let splitted = spl(parstr);
+                    Relation {
+                        params: vec![
+                            RelationParams::State(
+                                State {
+                                    ent: splitted[0].to_string(),
+                                    name: splitted[1].to_string(),
+                                }
+                            )
+                        ]
+                    }
+                }
+                "entity" => {
+                    Relation {
+                        params: vec![
+                            RelationParams::Entity(
+                                Entity {
+                                    name: parstr.to_string(),
+                                }
+                            )
+                        ]
+                    }
+                }
+                _ => panic!("Non-primary assertion passed to prim_rel. Unable to parse.")
+            }
+        };
 
-    let mut parse_relations = |s: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
         let mut parse_relation = |relstr: &str, parstr: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
             if !r.contains_key(relstr) {
                 if debug { println!("Undefined complex relation: {}", relstr) }
                 return Err(KidError::UndefinedComplexRelation);
             }
 
-            let mapped: String = {
+            let mapped = {
                 // "mapped" is the definition of the complex relation with the variables filled in.
 
                 // since we've seen this key before, let's unpack it.
@@ -517,7 +543,7 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
                 let mut parmap = HashMap::new();
                 let keys = spl(&original);
                 let vals = spl(parstr);
-                assert_eq!(keys.len(), vals.len());
+                if debug { assert_eq!(keys.len(), vals.len()) };
                 for i in 0..keys.len() {
                     parmap.insert(keys[i], vals[i]);
                 }
@@ -538,7 +564,7 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
 
                     out = out + &un[lasti..startp] + "("; // start with the relation and paren
 
-                    let endp = ENDPAREN.find(&un[startp..]).unwrap().start();
+                    let endp = ENDPAREN.find(&un[startp..]).unwrap().start() + 1;
                     for defparam in spl(&un[startp + 1..endp]).into_iter() {
                         if parmap.contains_key(defparam) {
                             out = out + " " + parmap.get(defparam).unwrap() + ",";
@@ -548,11 +574,11 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
                     }
                     out = out[..out.len() - 1].to_string() + &un[endp..n(un, endp)];
                 }
-                println!("Mapped: {}", out);
+                if debug { println!("Mapped: {}", out) };
                 out.to_string()
             };
 
-            return parse_relations(&mapped, r); // recurse until the relations have all been simplified.
+            parse_relations(&mapped, r, debug) // recurse until the relations have all been simplified (new scope necessary for lifetime stuff).
         };
 
         if debug {
@@ -567,20 +593,7 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
                 println!("iterating");
             }
 // for each m we know that we have chars, a start paren, chars, and an end paren.
-            let (relation, params) = {
-                let fs = m.start();
-                let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
-                if debug {
-                    println!("relation start index: {}", fs);
-                    println!("relation end index: {}", sp);
-                }
-                let relation = &s[fs..sp]; //relation
-                if debug {
-                    println!("relation: {}", relation);
-                }
-                let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start() + sp + 1]; //relation values
-                (relation, params)
-            };
+            let (relation, params) = rel_and_params(m, s, debug);
             if primitive(relation) {
                 if debug {
                     println!("Parsing primitive relation: {}", relation);
@@ -619,7 +632,7 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
         panic!("Not implemented")
     };
 
-    let mut parse_event = |s: &str| -> Event {
+    let mut parse_event = |es: &str, r: &mut HashMap<String, (String, String)>| -> Event {
         fn vec_to_conjugate(v: Vec<Relation>) -> EventConjugate {
             let mut o = EventConjugate {
                 actions: Vec::new(),
@@ -638,20 +651,44 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
             o
         }
 
-        let time_split = ARROW.find(s).unwrap().start();
-        let bvec = parse_relations(&s[..time_split], r).unwrap();
-        let avec = parse_relations(&s[time_split + 2..], r).unwrap();
+        let time_split = ARROW.find(es).unwrap().start();
+        if debug {
+            println!("Finding relations for two substrings: {} and {}", &es[..time_split], &es[time_split..]);
+        }
+        let (bvec, avec) = parsplit(es, time_split, r, debug);
+
+        if debug { println!("Relation vectors for event found. Converting to EventConjugate and returning Event.") };
+
+        let before = match bvec {
+            Ok(bev) => Some(vec_to_conjugate(bev)),
+            Err(error) => {
+                if debug {
+                    println!("Error in parse_event: {}", error);
+                }
+                None
+            }
+        };
+
+        let after = match avec {
+            Ok(afv) => Some(vec_to_conjugate(afv)),
+            Err(error) => {
+                if debug {
+                    println!("Error in parse_event: {}", error);
+                }
+                None
+            }
+        };
 
         Event {
-            before: Some(vec_to_conjugate(bvec)),
-            after: Some(vec_to_conjugate(avec)),
+            before,
+            after,
         }
     };
 
     enum Ce {
         A,
         // assertion
-//        R,
+        R,
         // complex relation declaration
 //        C, // causal rule
         E,
@@ -659,7 +696,32 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
         Bad,
     }
 
-    let c = |str: &str| -> Ce {
+    /// true iff string is a definition for a complex relation. Inputs the complex relation
+   /// into the hashmap for storing known complex relations and returns true, or returns false
+   /// if the string doesn't represent a complex relation definition.
+   ///
+   /// rules of a complex relation:
+   /// 1.) left- and right-hand sides of the relation must be separated by colon.
+   /// 2.) left-hand side must have exactly one relation, which should be non-primitive.
+    let mut complex_def = |st: &str, r: &mut HashMap<String, (String, String)>| -> bool {
+        match COLON.find(st) {
+            Some(colonmatch) => {
+                let relstart = RELATION.find(st).unwrap().start(); // is this always 0 or is there sometimes whitespace?
+                let colstart = COLON.find(st).unwrap().start();
+                let parenstart = STARTPAREN.find(st).unwrap().start();
+                if !primitive(&st[relstart..parenstart]) &&
+                    RELATION.find_iter(&st[..COLON.find(st).unwrap().start()]).count() == 1 {
+                    let (rel, params) = rel_and_params(RELATION.find(st).unwrap(), &st[relstart..ENDPAREN.find(st).unwrap().start() + 1], debug);
+                    r.insert(rel.to_string(), (params.to_string(), st[colonmatch.start() + 1..].to_string()));
+                    return true;
+                }
+                false
+            }
+            None => false
+        }
+    };
+
+    let mut c = |st: &'a str, r: &mut HashMap<String, (String, String)>| -> Ce {
         let n = |v: Option<regex::Match>| -> bool {
             match v {
                 Some(_) => true,
@@ -668,34 +730,43 @@ fn string_min_parse(s: &str, e: &mut HashMap<String, Vec<String>>, r: &mut HashM
         };
 
 
-
         if debug {
-            println!("in c() with str of {}", str);
-            println!("COLON match: {}", n(COLON.find(str)));
-            println!("ARROW match: {}", n(ARROW.find(str)));
+            println!("in c() with str of {}", st);
+            println!("COLON match: {}", n(COLON.find(st)));
+            println!("ARROW match: {}", n(ARROW.find(st)));
         }
 
-        if n(COLON.find(str)) && !n(ARROW.find(str)) {
+        if n(COLON.find(st)) && !n(ARROW.find(st)) {
+            if complex_def(st, r) {
+                Ce::R // already parsed by complex_def.
+            } else {
+                Ce::A
+            }
+        } else if !n(COLON.find(st)) && n(ARROW.find(st)) {
             Ce::E
-        } else if !n(COLON.find(str)) && n(ARROW.find(str)) {
-            Ce::A
         } else {
             Ce::Bad
         }
     };
 
-    match c(&s) {
+    match c(&s, r) {
         Ce::A => {
             if debug {
-                println!("Assertion detected.")
+                println!("Assertion detected. Parsing.")
             }
             Some(MinParseItem::A(parse_assertion(s)))
         }
         Ce::E => {
             if debug {
-                println!("Event detected.")
+                println!("Event detected. Parsing.")
             }
-            Some(MinParseItem::E(parse_event(s)))
+            Some(MinParseItem::E(parse_event(s, r)))
+        }
+        Ce::R => {
+            if debug {
+                println!("Complex relation parsed.")
+            }
+            None
         }
         Ce::Bad => {
             if debug {
@@ -721,7 +792,7 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
             match s.find("//") {
                 Some(index) => return remove_comments(&s[..index]),
                 None => {
-                    if !s.contains("->") && !s.contains(":") {
+                    if !s.contains("->") & &!s.contains(":") {
                         return None; // cleans out empty lines. Also removes misformatted lines.
                     }
                     return Some(s);
@@ -812,17 +883,17 @@ mod tests {
         let a2: Array1<f64> = array![1., 0., 1.];
         assert_eq!(1., euc_dist(&a1, &a2)); // minimal test
 
-        let a3: Array1<f64> = array![-1., 0., 2.];
-        let a4: Array1<f64> = array![-2., 0., 2.];
+        let a3: Array1<f64> = array![ - 1., 0., 2.];
+        let a4: Array1<f64> = array![ - 2., 0., 2.];
         assert_eq!(1., euc_dist(&a3, &a4)); // negative numbers
 
         let point_arrays = [
             a1, a2, a3, a4,
-            array![-2435345., 123412423., -1999.] as Array1<f64>,
+            array![ - 2435345., 123412423., -1999.] as Array1<f64>,
             array![0.01, 0.02, 0.03] as Array1<f64>, // decimals
-            array![9999999999999., 9999999999999., -9999999999999.] as Array1<f64>, // larger nums
+            array![9999999999999., 9999999999999., - 9999999999999.] as Array1<f64>, // larger nums
             array![0., 0., 0.] as Array1<f64>,
-            array![5.,5.,6.] as Array1<f64>
+            array![5., 5., 6.] as Array1<f64>
         ];
 
         for v1 in point_arrays.iter() {
@@ -830,16 +901,16 @@ mod tests {
                 println!("v1: {:?}", v1);
                 println!("v2: {:?}\n\n", v2);
 
-                // check symmetric
+// check symmetric
                 assert_eq!(euc_dist(v2, v1), euc_dist(v1, v2));
-                assert!(cos_dist(v2, v1).is_nan() || (cos_dist(v2, v1) == cos_dist(v1, v2)));
+                assert!(cos_dist(v2, v1).is_nan() | | (cos_dist(v2, v1) == cos_dist(v1, v2)));
 
-                // distance from self should be zero
+// distance from self should be zero
                 assert_eq!(0., euc_dist(v1, v1));
-                assert!(cos_dist(v1, v1).is_nan() || 0 == (10000000. * cos_dist(v1, v1)).round());
-                // (account for rounding errors with cos_dist)
+                assert!(cos_dist(v1, v1).is_nan() | | 0 == (10000000. * cos_dist(v1, v1)).round());
+// (account for rounding errors with cos_dist)
 
-                // distance between any non-identical vectors should not be zero
+// distance between any non-identical vectors should not be zero
                 if v1 != v2 {
                     assert_ne!(0., euc_dist(v1, v2));
                     assert_ne!(0., cos_dist(v1, v2));
@@ -858,21 +929,21 @@ fn main() {
 
     let mut assertions = generate_assertions(&min_inst);
     let mut diagnostics = generate_diagnostics(&assertions);
-    // diagnostics will be essential for optimizing assertion calculation.
+// diagnostics will be essential for optimizing assertion calculation.
 
     let mut inst_vec = vec![min_inst];
-    // I'm still deciding how to deal with semantics and instance organization for when we have
-    // A Lot of instances.
-    // important considerations: accessibility based on entities, actions, semantic content, and
-    // state. I haven't decided on the best data structure for this yet.
+// I'm still deciding how to deal with semantics and instance organization for when we have
+// A Lot of instances.
+// important considerations: accessibility based on entities, actions, semantic content, and
+// state. I haven't decided on the best data structure for this yet.
 
-    // Maybe a series of trees for each search method with the instance index in a giant vector out
-    // in the heap? It's okay if recalling specific instances (aka episodic memory) is slower than
-    // the assertion stuff; that's fine and normal in humans.
+// Maybe a series of trees for each search method with the instance index in a giant vector out
+// in the heap? It's okay if recalling specific instances (aka episodic memory) is slower than
+// the assertion stuff; that's fine and normal in humans.
 
-    // generally we would want to check + rebalance all of our assertions (and how this is done
-    // given new data will be central to the functioning of this algorithm), but for now let's
-    // only look at the case of the first assertions from the first instance.
+// generally we would want to check + rebalance all of our assertions (and how this is done
+// given new data will be central to the functioning of this algorithm), but for now let's
+// only look at the case of the first assertions from the first instance.
 
     let mut am = AssertionMaster {
         containers: HashMap::new()
@@ -883,11 +954,11 @@ fn main() {
         diagnostics,
         semantic_shape: Some(shape_from_instances(&inst_vec)),
     };
-    // we now have all of our assertions in a single container. put it in the master and we're good!
+// we now have all of our assertions in a single container. put it in the master and we're good!
 
     am.containers.insert(core_ac.name.clone(), core_ac);
 
-    //next up we want to predict something.
+//next up we want to predict something.
     let ptext = "state(match, burning) + state(newspaper, wet) + symmetric_action(newspaper, match, touching)".to_string();
     println!("{}", minimal_predict_string(ptext, am));
 }
