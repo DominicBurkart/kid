@@ -17,8 +17,8 @@ use bytes::Bytes;
 use geo::{Bbox, Coordinate, Point, Polygon};
 use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Keys;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -100,16 +100,16 @@ pub struct ProcessedData {
 
 #[derive(Debug, Clone)]
 pub struct Action {
-    source: String,
+    source: Option<String>,
     //entity id
-    target: String,
+    target: Option<String>,
     //entity id
     name: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct State {
-    ent: String,
+    ent: Option<String>,
     // entity id
     name: String,
 }
@@ -117,7 +117,7 @@ pub struct State {
 // i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
 #[derive(Debug, Clone)]
 pub struct Entity {
-    name: String,
+    name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -391,15 +391,10 @@ fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
 }
 
 #[derive(Debug)]
-enum RelationParams {
+enum Relation {
     Entity(Entity),
     Action(Action),
     State(State),
-}
-
-#[derive(Debug)]
-struct Relation {
-    params: Vec<RelationParams>,
 }
 
 /// These are what each line could represent.
@@ -409,6 +404,7 @@ enum MinParseItem {
     E(Event),
 }
 
+/// splits a string at its commas and trims whitespace.
 fn spl<'a>(s: &'a str) -> Vec<&'a str> {
     let mut vec: Vec<&str> = Vec::new();
     for val in s.split(",") {
@@ -417,7 +413,7 @@ fn spl<'a>(s: &'a str) -> Vec<&'a str> {
     vec
 }
 
-
+/// parses an MRT (minimal relations text) string.
 fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a mut HashMap<String, (String, String)>, filepath: &str) -> Option<MinParseItem> {
     quick_error! {
         #[derive(Debug)]
@@ -448,7 +444,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         println!("Parsing string: {}", s);
     }
 
-
+    /// checks if the relation &str matches "action" "state" or "entity"
     fn primitive(s: &str) -> bool {
         match s {
             "action" => true,
@@ -458,6 +454,8 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         }
     };
 
+    /// returns the relation string and parameter string for a given relation.
+    /// For example, "action(kelly, lauren, hugs)" -> ("action", "kelly, lauren, hugs")
     fn rel_and_params<'r>(m: regex::Match, s: &'r str, debug: bool) -> (&'r str, &'r str) {
         let fs = m.start();
         let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
@@ -474,64 +472,106 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         (relation, params)
     };
 
-    //    fn fill_in_variables(params: &str, unpacked: &str) -> Vec<Relation> {
-//        let mut relations = Vec::new();
-//// uh.. todo
-//        relations
-//    };
+    /// parses relations of both sides of a colon or arrow in an MRT line
     fn parsplit(es: &str, split: usize, r: &mut HashMap<String, (String, String)>, debug: bool) -> (Result<Vec<Relation>, KidError>, Result<Vec<Relation>, KidError>) {
         let (s1, s2) = es.split_at(split);
         if s2.starts_with(":") {
             (parse_relations(s1, r, debug),
-             parse_relations(&s2[1..], r, debug))
+             parse_relations(&s2[1..].trim(), r, debug))
         } else if s2.starts_with("->") {
             (parse_relations(s1, r, debug),
-             parse_relations(&s2[2..], r, debug))
+             parse_relations(&
+                                 s2[2..].trim(), r, debug))
         } else {
             panic!("Bad separator")
         }
     }
 
+    /// takes in a series of relations (usually one side of a color or arrow in an MRT line) and
+    /// recursively parses those relations until they are reduced into simple relations (entity,
+    /// state, and action declarations).
     fn parse_relations<'b>(s: &'b str, r: &mut HashMap<String, (String, String)>, debug: bool) -> Result<Vec<Relation>, KidError> {
+        /// Add implicitly declared entities (entities only referenced by actions and states).
+        fn add_impl_entities<'params>(rel: &str, params: &'params str, ents: &
+        mut HashSet<&'params str>) -> Vec<Entity> {
+            fn is_entity(rel: &str, i: i32, ent: &str) -> bool {
+                if ent.starts_with("_") {
+                    return false; // don't encode MRT _variables as entities
+                };
+                match rel {
+                    "action" => {
+                        match i {
+                            0 => true,
+                            1 => true,
+                            2 => false,
+                            _ => panic!("Unexpected i")
+                        }
+                    }
+                    "state" => {
+                        match i {
+                            0 => true,
+                            1 => false,
+                            _ => panic!("Unexpected i")
+                        }
+                    }
+                    "entity" => {
+                        assert! {i == 0}
+                        true
+                    }
+                    _ => false, // wait until parse_relations recurses into just simple relations.
+                }
+            }
+
+            let mut out = Vec::new();
+            let mut i = 0;
+            for ent in spl(params) {
+                if !ents.contains(ent) && is_entity(rel, i, ent) {
+                    out.push(
+                        Entity {
+                            name: Some(ent.to_string())
+                        }
+                    );
+                    ents.insert(ent);
+                } // todo deal with entity variables
+                i = i + 1;
+            }
+            out
+        }
+
         let prim_rel = |relstr: &str, parstr: &str| -> Relation {
+            let varcheck = |vs: &str| -> Option<String> {
+                if !vs.starts_with("_") {
+                    return Some(vs.to_string());
+                }
+                None
+            };
+
             match relstr {
                 "action" => {
                     let splitted = spl(parstr);
-                    Relation {
-                        params: vec![
-                            RelationParams::Action(
-                                Action {
-                                    source: splitted[0].to_string(),
-                                    target: splitted[1].to_string(),
-                                    name: splitted[2].to_string(),
-                                }
-                            )
-                        ]
-                    }
+                    Relation::Action(
+                        Action {
+                            source: varcheck(splitted[0]),
+                            target: varcheck(splitted[1]),
+                            name: splitted[2].to_string(),
+                        }
+                    )
                 }
                 "state" => {
                     let splitted = spl(parstr);
-                    Relation {
-                        params: vec![
-                            RelationParams::State(
-                                State {
-                                    ent: splitted[0].to_string(),
-                                    name: splitted[1].to_string(),
-                                }
-                            )
-                        ]
-                    }
+                    Relation::State(
+                        State {
+                            ent: varcheck(splitted[0]),
+                            name: splitted[1].to_string(),
+                        }
+                    )
                 }
                 "entity" => {
-                    Relation {
-                        params: vec![
-                            RelationParams::Entity(
-                                Entity {
-                                    name: parstr.to_string(),
-                                }
-                            )
-                        ]
-                    }
+                    Relation::Entity(
+                        Entity {
+                            name: varcheck(parstr),
+                        }
+                    )
                 }
                 _ => panic!("Non-primary assertion passed to prim_rel. Unable to parse.")
             }
@@ -588,13 +628,14 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                 out.to_string()
             };
 
-            parse_relations(&mapped, r, debug) // recurse until the relations have all been simplified (new scope necessary for lifetime stuff).
+            parse_relations(&mapped, r, debug) // recurse until the relations have all been simplified.
         };
 
         if debug {
             println!("in parse_relations");
         }
         let mut vec = Vec::new();
+        let mut ents = HashSet::new();
         if debug {
             println!("Find_iter through string {}", s);
         }
@@ -604,6 +645,11 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             }
 // for each m we know that we have chars, a start paren, chars, and an end paren.
             let (relation, params) = rel_and_params(m, s, debug);
+
+            for implicit_entity in add_impl_entities(relation, params, &mut ents) {
+                vec.push(Relation::Entity(implicit_entity))
+            }
+
             if primitive(relation) {
                 if debug {
                     println!("Parsing primitive relation: {}", relation);
@@ -614,6 +660,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     Ok(resp) => vec.extend(resp),
                     Err(KidError::UndefinedComplexRelation) => {
                         if vec.len() == 0 {
+                            // define the complex relation then!
                             r.insert(relation.to_string(), (params.to_string(), s[COLON.find(&s).unwrap().start() + 1..].to_string()));
                         } else {
                             panic!("Undeclared complex relation")
@@ -634,12 +681,10 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                 entities: Vec::new(),
             };
             for r in v.into_iter() {
-                for rp in r.params.into_iter() {
-                    match rp {
-                        RelationParams::Action(a) => o.actions.push(a),
-                        RelationParams::State(s) => o.states.push(s),
-                        RelationParams::Entity(e) => o.entities.push(e)
-                    }
+                match r {
+                    Relation::Action(a) => o.actions.push(a),
+                    Relation::State(s) => o.states.push(s),
+                    Relation::Entity(e) => o.entities.push(e)
                 }
             };
             o
