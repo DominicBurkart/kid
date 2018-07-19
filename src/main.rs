@@ -105,6 +105,7 @@ pub struct Action {
     target: String,
     //entity id
     name: String,
+    is_variable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -112,12 +113,14 @@ pub struct State {
     ent: String,
     // entity id
     name: String,
+    is_variable: bool,
 }
 
 // i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
 #[derive(Debug, Clone)]
 pub struct Entity {
     name: String,
+    is_variable: bool,
 }
 
 #[derive(Debug)]
@@ -524,7 +527,8 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                 if !ents.contains(ent) && is_entity(rel, i, ent) {
                     out.push(
                         Entity {
-                            name: ent.to_string()
+                            name: ent.to_string(),
+                            is_variable: ent.starts_with("_")
                         }
                     );
                     ents.insert(ent);
@@ -546,6 +550,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                             source: splitted[0].to_string(),
                             target: splitted[1].to_string(),
                             name: splitted[2].to_string(),
+                            is_variable: splitted[2].starts_with("_")
                         }
                     )
                 }
@@ -555,6 +560,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                         State {
                             ent: splitted[0].to_string(),
                             name: splitted[1].to_string(),
+                            is_variable: splitted[1].starts_with("_")
                         }
                     )
                 }
@@ -562,6 +568,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     Relation::Entity(
                         Entity {
                             name: parstr.to_string(),
+                            is_variable: parstr.starts_with("_")
                         }
                     )
                 }

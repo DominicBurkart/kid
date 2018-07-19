@@ -4,22 +4,21 @@
 // todo create syntax for explicit temporality and continuous transformations.
 // todo create syntax for importing other MRT files.
 
-//Defining a complex relation (uses the same format as an assertion).
+// Defining a complex relation (uses the same format as an assertion).
+// variables should be declared starting with an underscore.
 symmetric_action(_ent1, _ent2, _act) : action(_ent1, _ent2, _act) + action(_ent2, _ent1, _act) // declare new relations based on previous ones.
-// Parser currently accepts complex relation declarations without _variable notation, but
-// the underscore should be used for consistency with assertions.
 
-//Assertion. Here used for inheritance in relations.
+// Assertion. Here used for inheritance in relations.
 action(_ent1, _ent2, submerge) : symmetric_action(_ent1, _ent2, touching) // atomic actions can be declared as implying other actions.
 
 // conjugated event + an assertion.
-entity(paper) + entity(water) + action(water, paper, submerge) -> state(paper, wet)
+action(water, paper, submerge) -> state(paper, wet) + entity(water)
 state(paper, wet) : symmetric_action(paper, water, touching)
 
-//todo: should this still be true? "entities and states are assumed to be stable unless explicitly modified."
-state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning)
-state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet)
-state(match, burning) + entity(water) -> state(match, wet) + water
+state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning) + state(match, burning)
+state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet) + entity(water)
+state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet) + entity(water)
 
-//Notes:
+// Notes:
 // entities do not carry over from line to line. Complex relations must be defined before being used.
+// when defining assertions or complex relations, any action, state, or entity can be declared as a _variable.
