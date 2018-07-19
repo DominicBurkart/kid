@@ -100,16 +100,16 @@ pub struct ProcessedData {
 
 #[derive(Debug, Clone)]
 pub struct Action {
-    source: Option<String>,
+    source: String,
     //entity id
-    target: Option<String>,
+    target: String,
     //entity id
     name: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct State {
-    ent: Option<String>,
+    ent: String,
     // entity id
     name: String,
 }
@@ -117,7 +117,7 @@ pub struct State {
 // i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
 #[derive(Debug, Clone)]
 pub struct Entity {
-    name: Option<String>,
+    name: String,
 }
 
 #[derive(Debug)]
@@ -480,8 +480,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
              parse_relations(&s2[1..].trim(), r, debug))
         } else if s2.starts_with("->") {
             (parse_relations(s1, r, debug),
-             parse_relations(&
-                                 s2[2..].trim(), r, debug))
+             parse_relations(&s2[2..].trim(), r, debug))
         } else {
             panic!("Bad separator")
         }
@@ -495,9 +494,6 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         fn add_impl_entities<'params>(rel: &str, params: &'params str, ents: &
         mut HashSet<&'params str>) -> Vec<Entity> {
             fn is_entity(rel: &str, i: i32, ent: &str) -> bool {
-                if ent.starts_with("_") {
-                    return false; // don't encode MRT _variables as entities
-                };
                 match rel {
                     "action" => {
                         match i {
@@ -528,7 +524,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                 if !ents.contains(ent) && is_entity(rel, i, ent) {
                     out.push(
                         Entity {
-                            name: Some(ent.to_string())
+                            name: ent.to_string()
                         }
                     );
                     ents.insert(ent);
@@ -539,20 +535,16 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         }
 
         let prim_rel = |relstr: &str, parstr: &str| -> Relation {
-            let varcheck = |vs: &str| -> Option<String> {
-                if !vs.starts_with("_") {
-                    return Some(vs.to_string());
-                }
-                None
-            };
-
+            if debug {
+                println!("Parsing primitive relation");
+            }
             match relstr {
                 "action" => {
                     let splitted = spl(parstr);
                     Relation::Action(
                         Action {
-                            source: varcheck(splitted[0]),
-                            target: varcheck(splitted[1]),
+                            source: splitted[0].to_string(),
+                            target: splitted[1].to_string(),
                             name: splitted[2].to_string(),
                         }
                     )
@@ -561,7 +553,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     let splitted = spl(parstr);
                     Relation::State(
                         State {
-                            ent: varcheck(splitted[0]),
+                            ent: splitted[0].to_string(),
                             name: splitted[1].to_string(),
                         }
                     )
@@ -569,7 +561,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                 "entity" => {
                     Relation::Entity(
                         Entity {
-                            name: varcheck(parstr),
+                            name: parstr.to_string(),
                         }
                     )
                 }
@@ -577,6 +569,9 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             }
         };
 
+        /// parse a single complex relation by recursively calling parse_relations on
+        /// the definition of the complex relation, with the values in the relation imputed into the
+        /// definition.
         let mut parse_relation = |relstr: &str, parstr: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
             if !r.contains_key(relstr) {
                 if debug { println!("Undefined complex relation: {}", relstr) }
@@ -588,6 +583,10 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 
                 // since we've seen this key before, let's unpack it.
                 let &(ref or, ref un) = r.get(relstr).unwrap();
+                if debug {
+                    println!("original parameters of complex relation: {}", or);
+                    println!("un-imputed definition of complex relation: {}", un);
+                }
                 let original = or.to_string();
                 let unpacked = un.to_string();
                 let mut parmap = HashMap::new();
@@ -606,15 +605,14 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     }
                 };
 
-                let mut lasti = 0;
                 let mut out = "".to_string();
 
                 for pmatch in STARTPAREN.find_iter(un) {
                     let startp = pmatch.start();
 
-                    out = out + &un[lasti..startp] + "("; // start with the relation and paren
+                    out = out + &un[..startp] + "("; // start with the relation and paren
 
-                    let endp = ENDPAREN.find(&un[startp..]).unwrap().start() + 1;
+                    let endp = startp + ENDPAREN.find(&un[startp..]).unwrap().start();
                     for defparam in spl(&un[startp + 1..endp]).into_iter() {
                         if parmap.contains_key(defparam) {
                             out = out + " " + parmap.get(defparam).unwrap() + ",";
@@ -660,6 +658,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     Ok(resp) => vec.extend(resp),
                     Err(KidError::UndefinedComplexRelation) => {
                         if vec.len() == 0 {
+                            // todo i think this is where we're messing up in parsing right-side references to complex relations.
                             // define the complex relation then!
                             r.insert(relation.to_string(), (params.to_string(), s[COLON.find(&s).unwrap().start() + 1..].to_string()));
                         } else {

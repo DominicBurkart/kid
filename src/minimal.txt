@@ -1,8 +1,8 @@
 // this document is example of the minimal relations text format (mrt).
 
-// todo all variables are essentially wildcards right now. Smarter variables need to be implemented.
 // todo create script for converting prolog relations into MRT entity relations.
-// todo create syntax for temporality, continuous transformations.
+// todo create syntax for explicit temporality and continuous transformations.
+// todo create syntax for importing other MRT files.
 
 //Defining a complex relation (uses the same format as an assertion).
 symmetric_action(_ent1, _ent2, _act) : action(_ent1, _ent2, _act) + action(_ent2, _ent1, _act) // declare new relations based on previous ones.
@@ -16,7 +16,10 @@ action(_ent1, _ent2, submerge) : symmetric_action(_ent1, _ent2, touching) // ato
 entity(paper) + entity(water) + action(water, paper, submerge) -> state(paper, wet)
 state(paper, wet) : symmetric_action(paper, water, touching)
 
-//entities and states are assumed to be stable unless explicitly modified.
+//todo: should this still be true? "entities and states are assumed to be stable unless explicitly modified."
 state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning)
 state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet)
-state(match, burning) + water -> match(wet) + water - state(match, burning)
+state(match, burning) + entity(water) -> state(match, wet) + water
+
+//Notes:
+// entities do not carry over from line to line. Complex relations must be defined before being used.
