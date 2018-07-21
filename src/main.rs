@@ -98,7 +98,7 @@ pub struct ProcessedData {
     format_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Action {
     source: String,
     //entity id
@@ -108,7 +108,7 @@ pub struct Action {
     is_variable: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct State {
     ent: String,
     // entity id
@@ -117,7 +117,7 @@ pub struct State {
 }
 
 // i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Entity {
     name: String,
     is_variable: bool,
@@ -131,7 +131,7 @@ pub struct PhysicalEntity {
     scale: u64, // log scale where 0 == subatomic
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct EventConjugate {
     actions: Vec<Action>,
     states: Vec<State>,
@@ -237,7 +237,7 @@ impl Effect for CausalRule {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Event {
     before: Option<EventConjugate>,
     after: Option<EventConjugate>,
@@ -385,19 +385,111 @@ pub struct AssertionMaster {
     containers: HashMap<String, AssertionContainer>, // this might become a b tree based on semantic overlap instead.
 }
 
-fn generate_assertions(inst: &Instance) -> Vec<Assertion> {
-    panic!("Not implemented") // todo
+/// first pass of generating assertions from a vector of instances.
+fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
+    fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<RelRef<'a>, HashSet<&'a Event>>) {
+        let mut check_or_insert = |r: RelRef<'a>| {
+            if c.contains_key(&r) {
+                let mut s = c.get_mut(&r).unwrap();
+                if !s.contains(e) {
+                    s.insert(e);
+                }
+            } else {
+                let mut s = HashSet::new();
+                s.insert(e);
+                c.insert(r, s);
+            }
+        };
+
+        match e.before {
+            Some(ref evconj) => {
+                for v in evconj.actions.iter() {
+                    check_or_insert(RelRef::Action(v));
+                }
+                for v in evconj.states.iter() {
+                    check_or_insert(RelRef::State(v));
+                }
+                for v in evconj.entities.iter() {
+                    check_or_insert(RelRef::Entity(v));
+                }
+            }
+            None => (),
+        };
+
+        match e.after {
+            Some(ref evconj) => {
+                for v in evconj.actions.iter() {
+                    check_or_insert(RelRef::Action(v));
+                }
+                for v in evconj.states.iter() {
+                    check_or_insert(RelRef::State(v));
+                }
+                for v in evconj.entities.iter() {
+                    check_or_insert(RelRef::Entity(v));
+                }
+            }
+            None => (),
+        };
+    }
+
+    /// the goal of this function is to detect (disprovable, specifically postulated) patterns in a series of events.
+    fn relation_assertion(s: &HashSet<&Event>, out: &mut Vec<Assertion>) {
+        fn soft_match(v: Vec<Option<EventConjugate>>) -> Vec<EventConjugate> {
+            panic!("Not implemented")
+        }
+
+        fn into_assertion(before: EventConjugate, after: EventConjugate) -> Assertion {
+            panic!("Not implemented")
+        }
+
+        let mut befores = Vec::new();
+        let mut afters = Vec::new();
+        for v in s.iter() {
+            befores.push(v.before);
+            afters.push(v.after);
+        }
+
+        let before_patterns = soft_match(befores);
+        let after_patterns = soft_match(afters);
+
+        for b in before_patterns.into_iter() {
+            for a in after_patterns.into_iter(){
+                out.push(into_assertion(b,a));
+            }
+        }
+    }
+
+    let mut out: Vec<Assertion> = Vec::new();
+    let mut crosscheck: HashMap<RelRef, HashSet<&'a Event>> = HashMap::new();
+    for inst in insts.iter() {
+        for e in inst.events.iter() {
+            set(e, &mut out, &mut crosscheck);
+        }
+    }
+
+    for rel_events in crosscheck.values() {
+        relation_assertion(rel_events, &mut out);
+    }
+
+    out
 }
 
 fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
     panic!("Not implemented") // todo
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Hash)]
 enum Relation {
     Entity(Entity),
     Action(Action),
     State(State),
+}
+
+#[derive(Debug, Eq, PartialEq, Hash)]
+enum RelRef<'a> {
+    Entity(&'a Entity),
+    Action(&'a Action),
+    State(&'a State),
 }
 
 /// These are what each line could represent.
@@ -528,7 +620,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     out.push(
                         Entity {
                             name: ent.to_string(),
-                            is_variable: ent.starts_with("_")
+                            is_variable: ent.starts_with("_"),
                         }
                     );
                     ents.insert(ent);
@@ -550,7 +642,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                             source: splitted[0].to_string(),
                             target: splitted[1].to_string(),
                             name: splitted[2].to_string(),
-                            is_variable: splitted[2].starts_with("_")
+                            is_variable: splitted[2].starts_with("_"),
                         }
                     )
                 }
@@ -560,7 +652,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                         State {
                             ent: splitted[0].to_string(),
                             name: splitted[1].to_string(),
-                            is_variable: splitted[1].starts_with("_")
+                            is_variable: splitted[1].starts_with("_"),
                         }
                     )
                 }
@@ -568,7 +660,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     Relation::Entity(
                         Entity {
                             name: parstr.to_string(),
-                            is_variable: parstr.starts_with("_")
+                            is_variable: parstr.starts_with("_"),
                         }
                     )
                 }
@@ -724,10 +816,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             }
         };
 
-        Event {
-            before,
-            after,
-        }
+        Event { before, after }
     };
 
     let mut parse_assertion = |s: &str, r: &mut HashMap<String, (String, String)>| -> Assertion {
@@ -1001,7 +1090,7 @@ fn main() {
 
     let mut min_inst = parse_minimal(min_txt_path, "minimal".to_string());
 
-    let mut assertions = generate_assertions(&min_inst);
+    let mut assertions = generate_assertions(vec![&min_inst]);
     match min_inst.assertions.clone() {
         Some(v) => {
             assertions.extend(v)

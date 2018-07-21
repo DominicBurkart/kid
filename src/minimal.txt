@@ -9,14 +9,15 @@
 symmetric_action(_ent1, _ent2, _act) : action(_ent1, _ent2, _act) + action(_ent2, _ent1, _act) // declare new relations based on previous ones.
 
 // Assertion. Here used for inheritance in relations.
-action(_ent1, _ent2, submerge) : symmetric_action(_ent1, _ent2, touching) // atomic actions can be declared as implying other actions.
+action(_ent1, _ent2, submerge) : symmetric_action(_ent1, _ent2, touching)
 
 // conjugated event + an assertion.
 action(water, paper, submerge) -> state(paper, wet) + entity(water)
 state(paper, wet) : symmetric_action(paper, water, touching)
 
 state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning) + state(match, burning)
-state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet) + entity(water)
+state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning) + state(match, burning) // duplicates indicate that multiple identical events occurred.
+state(match, burning) + symmetric_action(paper, match, touching) -> state(paper, burning) + state(match, burning)
 state(match, burning) + symmetric_action(match, water, touching) -> state(match, wet) + entity(water)
 
 // Notes:
