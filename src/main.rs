@@ -35,7 +35,7 @@ pub struct SemanticShape {
 }
 
 fn shape_from_instances(instances: &Vec<Instance>) -> SemanticShape {
-    panic!("Not implemented") // todo
+    unimplemented!() // todo
 }
 
 /// euclidean distance between two points of arbitrary dimensions.
@@ -161,7 +161,7 @@ pub fn contains_conjugate(inst: &Instance, conj: &EventConjugate) -> bool {
 //}
 //
 pub fn compare_conjugate_similarity(inst: &Instance, conj1: &EventConjugate, conj2: &EventConjugate) -> f64 {
-    panic!("Not implemented") // todo. attempts to fuzzy match event conjugate to the instance. output is relative similarity to conj1 vers conj2 [0,1], bigger values => more similar
+    unimplemented!() // todo. attempts to fuzzy match event conjugate to the instance. output is relative similarity to conj1 vers conj2 [0,1], bigger values => more similar
     // needs to pull apart similarities in the two conjugates
 }
 
@@ -433,28 +433,43 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
     }
 
     /// the goal of this function is to detect (disprovable, specifically postulated) patterns in a series of events.
-    fn relation_assertion(s: &HashSet<&Event>, out: &mut Vec<Assertion>) {
-        fn soft_match(v: Vec<Option<EventConjugate>>) -> Vec<EventConjugate> {
-            panic!("Not implemented")
-        }
+    let mut relation_assertion = |s: &HashSet<&Event>, out: &mut Vec<Assertion>| {
+        let mut soft_match = |v: Vec<&Option<EventConjugate>>| -> Vec<EventConjugate> {
+            unimplemented!()
+        };
 
-        fn into_assertion(before: EventConjugate, after: EventConjugate) -> Assertion {
-            panic!("Not implemented")
-        }
+        let mut into_assertion = |before: EventConjugate, after: EventConjugate| -> kid::Assertion {
+            unimplemented!()
+//            Assertion {
+//
+////            //format.name is the string key
+////            proofs: HashMap < String,
+////            Vec<Proof> >,
+////            id: usize,
+////            // should equal ID of AssertionContainer
+////            container_name: String,
+////            // duration since epoch of last_diagnostic
+////            last_diagnostic: Duration,
+////            updated_since: bool, // updated since last diagnostic
+//            }
+        };
 
         let mut befores = Vec::new();
         let mut afters = Vec::new();
         for v in s.iter() {
-            befores.push(v.before);
-            afters.push(v.after);
+            befores.push(&v.before);
+            afters.push(&v.after);
         }
 
         let before_patterns = soft_match(befores);
         let after_patterns = soft_match(afters);
 
-        for b in before_patterns.into_iter() {
-            for a in after_patterns.into_iter(){
-                out.push(into_assertion(b,a));
+        for b in before_patterns.iter() {
+            for a in after_patterns.iter() {
+                out.push(into_assertion(b.clone(), a.clone()));
+            }
+        }
+    };
             }
         }
     }
@@ -475,7 +490,7 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
 }
 
 fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
-    panic!("Not implemented") // todo
+    unimplemented!() // todo
 }
 
 #[derive(Debug, Eq, PartialEq, Hash)]
@@ -943,7 +958,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 /// predictions in a lot of ways (e.g. to self-optimize and to decide how to act). But, for the
 /// minimal case, we're just looking at a simple prediction
 fn minimal_predict_string(before: String, am: AssertionMaster) -> String {
-    panic!("Not implemented"); // todo
+    unimplemented!(); // todo
 }
 
 fn parse_minimal(fname: &Path, name: String) -> Instance {
