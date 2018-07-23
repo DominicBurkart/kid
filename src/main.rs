@@ -15,6 +15,7 @@ extern crate quick_error;
 
 use bytes::Bytes;
 use geo::{Bbox, Coordinate, Point, Polygon};
+use ndarray::{Array, Dim};
 use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -138,6 +139,16 @@ pub struct EventConjugate {
     entities: Vec<Entity>,
 }
 
+impl EventConjugate {
+    pub fn new() -> Self {
+        EventConjugate {
+            actions: Vec::new(),
+            states: Vec::new(),
+            entities: Vec::new(),
+        }
+    }
+}
+
 
 pub fn match_events(ev1: &Event, ev2: &Event) -> bool {
     true // todo. attempts to match two event conjugates.
@@ -160,9 +171,41 @@ pub fn contains_conjugate(inst: &Instance, conj: &EventConjugate) -> bool {
 //    true // todo. attempts to match event conjugate to the instance's before event conjugate.
 //}
 //
-pub fn compare_conjugate_similarity(inst: &Instance, conj1: &EventConjugate, conj2: &EventConjugate) -> f64 {
+pub fn compare_conjugate_similarity(conj1: &EventConjugate, conj2: &EventConjugate) -> f64 {
     unimplemented!() // todo. attempts to fuzzy match event conjugate to the instance. output is relative similarity to conj1 vers conj2 [0,1], bigger values => more similar
     // needs to pull apart similarities in the two conjugates
+}
+
+fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array<f64, Dim<[usize; 2]>> {
+    let n = vector.len();
+    let mut ar = Array::<f64, _>::ones((n, n));
+    let mut done = HashMap::new();
+
+    for ((i, j), elt) in ar.indexed_iter_mut() {
+        if i != j {
+            let mirror = done.get(&(j, i));
+            match mirror {
+                Some(m) => {
+                    *elt = *m;
+                    continue;
+                },
+                None => {
+                    *elt = compare_conjugate_similarity(vector.get(i).unwrap(),
+                                                        vector.get(j).unwrap());
+                }
+            }
+        } else {
+            continue;
+            // *elt = 1. is unnecessary since we instantiated all values as 1.
+        }
+        done.insert((j, i), *elt);
+    }
+
+    ar
+}
+
+pub fn conjugate_union(conj1: &EventConjugate, conj2: &EventConjugate) -> EventConjugate {
+    unimplemented!()
 }
 
 /// Causal rule. Since we can never know if we are not detecting some entity, we must treat even
@@ -216,7 +259,7 @@ impl Prob for CausalRule {
             if contains_conjugate(inst, &ev_before) {
                 return 0.; // causal outcome may still occur, but etiology is unknown. rely on inference.
             }
-            let cur = compare_conjugate_similarity(inst, &self.before, ev_before);
+            let cur = compare_conjugate_similarity(&self.before, ev_before);
             if cur < min {
                 min = cur;
             }
@@ -387,6 +430,8 @@ pub struct AssertionMaster {
 
 /// first pass of generating assertions from a vector of instances.
 fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
+    let debug = true;
+
     fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<RelRef<'a>, HashSet<&'a Event>>) {
         let mut check_or_insert = |r: RelRef<'a>| {
             if c.contains_key(&r) {
@@ -434,11 +479,39 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
 
     /// the goal of this function is to detect (disprovable, specifically postulated) patterns in a series of events.
     let mut relation_assertion = |s: &HashSet<&Event>, out: &mut Vec<Assertion>| {
-        let mut soft_match = |v: Vec<&Option<EventConjugate>>| -> Vec<EventConjugate> {
-            unimplemented!()
+        /// take in a set of event conjugates and, for the non-None conjugates, form shared
+        /// event / action / state system.
+        let mut soft_rules = |v: Vec<&Option<EventConjugate>>| -> Vec<EventConjugate> {
+            if debug {
+                assert!(v.len() > 0);
+            }
+
+            let mut conjs = Vec::new();
+            let mut maximal_union = EventConjugate::new();
+
+            // begin by generating the union of the conjugates – the shared features across all rules.
+            let mut first = true;
+            for item in v.iter() {
+                match item {
+                    &&Some(ref evconj) => {
+                        if first {
+                            maximal_union = evconj.clone();
+                            first = false;
+                        }
+                        maximal_union = conjugate_union(&maximal_union, evconj);
+                    }
+                    &&None => ()
+                }
+            }
+            conjs.push(maximal_union);
+
+            // next partition the events by clustering on conjugate similarity.
+            
+
+            conjs
         };
 
-        let mut into_assertion = |before: EventConjugate, after: EventConjugate| -> kid::Assertion {
+        let mut into_assertion = |before: EventConjugate, after: EventConjugate| -> Assertion {
             unimplemented!()
 //            Assertion {
 //
@@ -461,8 +534,8 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
             afters.push(&v.after);
         }
 
-        let before_patterns = soft_match(befores);
-        let after_patterns = soft_match(afters);
+        let before_patterns = soft_rules(befores);
+        let after_patterns = soft_rules(afters);
 
         for b in before_patterns.iter() {
             for a in after_patterns.iter() {
@@ -470,9 +543,6 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
             }
         }
     };
-            }
-        }
-    }
 
     let mut out: Vec<Assertion> = Vec::new();
     let mut crosscheck: HashMap<RelRef, HashSet<&'a Event>> = HashMap::new();
