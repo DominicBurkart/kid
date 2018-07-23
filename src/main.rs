@@ -434,13 +434,14 @@ pub struct AssertionMaster {
 /// vectors of the indices for the original values for each cluster, e.g:
 /// vec![vec![value_index1, value_index2...] // cluster 1 values, vec![value_indexN, ...] // cluster 2 values, ... // so on for each cluster]
 ///
-/// current algorithm is the kodama crate's implementation of the hierarchical clustering work by Müllner.
+/// current algorithm is the kodama crate's implementation of the hierarchical clustering work by Müllner,
+/// though it doesn't retain the hierarchical structure of the groupings.
 fn cluster_mat(ar: &Array2<f64>) -> Vec<Vec<usize>> {
-    hierarchical_clustering(&mut condense_dissimilarity_matrix(&similar_to_dissimilar(ar)))
+    hierarchical_clustering(&mut condense_symmetric_matrix(&similar_to_dissimilar(ar)))
 }
 
-/// yields a triangle (not including diagonal) from the symmetric similarity matrix for kodama
-fn condense_dissimilarity_matrix(ar: &Array2<f64>) -> Vec<f64> {
+/// yields a triangle (not including diagonal) from a symmetric matrix.
+fn condense_symmetric_matrix(ar: &Array2<f64>) -> Vec<f64> {
     let debug = true;
     if debug {
         assert_eq!(ar.shape()[0], ar.shape()[1]);
@@ -465,12 +466,75 @@ fn similar_to_dissimilar(ar: &Array2<f64>) -> Array2<f64> {
 }
 
 
-/// kodama crate's implementation of the hierarchical clustering work by Müllner
+/// kodama crate's implementation of the hierarchical clustering work by Müllner.
 fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
-    let l = sim.len(); // todo is this what it's supposed to be?
+    let debug = true;
+
+    /// Returns the index of the value with the highest second dirivative. ignores first and last values (dirivative incalculable).
+    fn i_of_greatest_second_d(v: Vec<f64>, debug: bool) -> usize {
+        if debug {
+            assert!(v.len() > 2);
+        }
+        let mut d2 = |i: usize| -> f64 { (v.get(i + 1).unwrap() + v.get(i - 1).unwrap() - 2. * v.get(i).unwrap()).abs() };
+        // for hierarchical clustering there shouldn't ever be negative numbers.
+        let mut maxi = 2 as usize;
+        let mut maxv = d2(maxi);
+        for index in 2..(v.len() - 1) {
+            if d2(index) > maxv {
+                maxi = index;
+                maxv = d2(index);
+            }
+        }
+        maxi
+    }
+
+    /// indices of values in the same order as in the dissimilarity matrix, grouped by cluster.
+    /// hierarchical nature of the clustering is ignored.
+    /// d : Dendrogram from kodama's linkage library.
+    /// l : number of values compared in the dissimilarity matrix.
+    fn assign_to_clusters_from_step(d: Dendrogram<f64>, s: usize, l: usize) -> Vec<Vec<usize>> {
+        let mut clustmap = HashMap::new();
+        for og in 0..l {
+            clustmap.insert(og, vec![og]); // the first instantiated clusters correspond with the original values.
+        }
+        let mut i = 0;
+        for step in d.steps() {
+            let mut cl1 = clustmap.remove(&step.cluster1).unwrap();
+            let mut cl2 = clustmap.remove(&step.cluster2).unwrap();
+            cl1.extend(cl2);
+            clustmap.insert(i + l, cl1);
+            i += 1;
+            if i > s { break; }
+        }
+
+        // great! because of how we've traversed the dendrogram, the only contents of clustmap are
+        // clusters named by arbitrary keys that contain values that correspond with the indices of
+        // the original values.
+        let mut out = Vec::new();
+        for (_, v) in clustmap.drain() {
+            out.push(v);
+        }
+        out
+    }
+
+    if debug {
+        assert!(sim.len() > 1);
+    }
+
+    let mut l = 2 as usize;
+    let sol = 2 * sim.len();
+    while l * (l - 1) != sol {
+        l += 1; // iterate until you've found the length of the original set of values
+    };
+
     let dend = linkage(sim, l, Method::Average);
-    // todo decide on K here
-    unimplemented!();
+
+    let mut dissims = Vec::new();
+    for step in dend.steps() {
+        dissims.push(step.dissimilarity);
+    }
+
+    assign_to_clusters_from_step(dend, i_of_greatest_second_d(dissims, debug), l)
 }
 
 /// first pass of generating assertions from a vector of instances.
@@ -527,7 +591,6 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
         /// take in a set of event conjugates and, for the non-None conjugates, form shared
         /// event / action / state system. Also returns all non-None events from the input.
         let mut soft_rules = |vector: Vec<&'a Option<EventConjugate>>| -> Vec<EventConjugate> {
-
             /// yields the maximal
             let mut maximal = |v: Vec<&'a Option<EventConjugate>>| -> (Option<EventConjugate>, Vec<&'a EventConjugate>) {
                 let mut maximal_union = EventConjugate::new();
@@ -583,24 +646,27 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
                 (None, all_evs) => all_evs
             };
 
-            // next partition the events by clustering on conjugate similarity.
-            let mut mat = conjugate_similarity_matrix(&all_evs);
-            // ref the valid events in a hashmap with the matrix indices as keys.
-            let mut ev_map = HashMap::new();
-            let mut evi = 0;
-            for ev in all_evs.into_iter() {
-                ev_map.insert(evi, ev);
-                evi += 1;
-            }
-            let i_cluster = cluster_mat(&mut mat);
-            for clust in i_cluster.iter() {
-                let mut clustered_events= Vec::new();
-                for v in clust.iter() {
-                    clustered_events.push(ev_map.remove(v).unwrap().clone());
+            // next partition the events by clustering on conjugate similarity (if we have more than
+            // three events).
+            if all_evs.len() > 3 {
+                let mut mat = conjugate_similarity_matrix(&all_evs);
+                // ref the valid events in a hashmap with the matrix indices as keys.
+                let mut ev_map = HashMap::new();
+                let mut evi = 0;
+                for ev in all_evs.into_iter() {
+                    ev_map.insert(evi, ev);
+                    evi += 1;
                 }
-                // cool! we have our cluster of events.
-                if clustered_events.len() > 0 {
-                    conjs.push(max(clustered_events));
+                let i_cluster = cluster_mat(&mut mat);
+                for clust in i_cluster.iter() {
+                    let mut clustered_events = Vec::new();
+                    for v in clust.iter() {
+                        clustered_events.push(ev_map.remove(v).unwrap().clone());
+                    }
+                    // cool! we have our cluster of events.
+                    if clustered_events.len() > 0 {
+                        conjs.push(max(clustered_events));
+                    }
                 }
             }
 
