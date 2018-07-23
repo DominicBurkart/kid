@@ -16,8 +16,8 @@ extern crate kodama;
 
 use bytes::Bytes;
 use geo::{Bbox, Coordinate, Point, Polygon};
-use kodama::{linkage, Method, Dendrogram};
-use ndarray::{ArrayBase, Array, Axis};
+use kodama::{Dendrogram, linkage, Method};
+use ndarray::{Array, ArrayBase, Axis};
 use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -434,20 +434,18 @@ pub struct AssertionMaster {
 /// vectors of the indices for the original values for each cluster, e.g:
 /// vec![vec![value_index1, value_index2...] // cluster 1 values, vec![value_indexN, ...] // cluster 2 values, ... // so on for each cluster]
 ///
-/// current algorithm is the kodama crate's implementation of the hierarchical clustering work by Müllner
+/// current algorithm is the kodama crate's implementation of the hierarchical clustering work by Müllner.
 fn cluster_mat(ar: &Array2<f64>) -> Vec<Vec<usize>> {
-    let dend = hierarchical_clustering(&mut condense_similarity_matrix(ar));
-    // todo implement decision for K here or in hierarchical_clustering
-    unimplemented!();
+    hierarchical_clustering(&mut condense_dissimilarity_matrix(&similar_to_dissimilar(ar)))
 }
 
 /// yields a triangle (not including diagonal) from the symmetric similarity matrix for kodama
-fn condense_similarity_matrix(ar: &Array2<f64>) -> Vec<f64> {
+fn condense_dissimilarity_matrix(ar: &Array2<f64>) -> Vec<f64> {
     let debug = true;
     if debug {
         assert_eq!(ar.shape()[0], ar.shape()[1]);
     }
-    let n = ar.shape()[0];
+    let n = ar.shape()[0] as usize;
     let mut out = Vec::new();
     for i1 in 1..n - 1 {
         for i2 in i1..n {
@@ -457,10 +455,21 @@ fn condense_similarity_matrix(ar: &Array2<f64>) -> Vec<f64> {
     out
 }
 
-fn hierarchical_clustering(sim: &mut Vec<f64>) -> Dendrogram<f64> {
-    let l = sim.len();
+/// creates a new matrix of the same size as the input that is 1-value for each value in the input.
+fn similar_to_dissimilar(ar: &Array2<f64>) -> Array2<f64> {
+    let debug = true;
+    if debug {
+        assert_eq!(ar.shape()[0], ar.shape()[1]);
+    }
+    Array2::<f64>::ones((ar.shape()[0], ar.shape()[1])) - ar
+}
+
+
+/// kodama crate's implementation of the hierarchical clustering work by Müllner
+fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
+    let l = sim.len(); // todo is this what it's supposed to be?
     let dend = linkage(sim, l, Method::Average);
-    // todo decide on K here?
+    // todo decide on K here
     unimplemented!();
 }
 
@@ -514,10 +523,12 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
     }
 
     /// the goal of this function is to detect (disprovable, specifically postulated) patterns in a series of events.
-    let mut relation_assertion= |s: &HashSet<&'a Event>, out: &mut Vec<Assertion>| {
+    let mut relation_assertion = |s: &HashSet<&'a Event>, out: &mut Vec<Assertion>| {
         /// take in a set of event conjugates and, for the non-None conjugates, form shared
-        /// event / action / state system.
+        /// event / action / state system. Also returns all non-None events from the input.
         let mut soft_rules = |vector: Vec<&'a Option<EventConjugate>>| -> Vec<EventConjugate> {
+
+            /// yields the maximal
             let mut maximal = |v: Vec<&'a Option<EventConjugate>>| -> (Option<EventConjugate>, Vec<&'a EventConjugate>) {
                 let mut maximal_union = EventConjugate::new();
                 let mut unwrapped = Vec::new();
@@ -526,7 +537,6 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
                 for item in v.iter() {
                     match item {
                         &&Some(ref evconj) => {
-                            unwrapped.push(evconj);
                             if first {
                                 maximal_union = evconj.clone();
                                 first = false;
@@ -542,25 +552,57 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
                 (Some(maximal_union), unwrapped)
             };
 
+            let mut max = |v: Vec<EventConjugate>| -> EventConjugate {
+                let mut maximal_union = EventConjugate::new();
+
+                let mut first = true;
+                for evconj in v.into_iter() {
+                    if first {
+                        maximal_union = evconj.clone();
+                        first = false;
+                    }
+                    maximal_union = conjugate_union(&maximal_union, &evconj);
+                }
+                if first == true {
+                    panic!("Array of 0 length passed to closure.")
+                }
+                maximal_union
+            };
+
             if debug {
                 assert!(vector.len() > 0);
             }
 
             let mut conjs = Vec::new();
 
-            let all_evs = match maximal(vector) {
+            let mut all_evs = match maximal(vector) {
                 (Some(m), all_evs) => {
                     conjs.push(m);
                     all_evs
-                },
+                }
                 (None, all_evs) => all_evs
             };
 
-
             // next partition the events by clustering on conjugate similarity.
             let mut mat = conjugate_similarity_matrix(&all_evs);
+            // ref the valid events in a hashmap with the matrix indices as keys.
+            let mut ev_map = HashMap::new();
+            let mut evi = 0;
+            for ev in all_evs.into_iter() {
+                ev_map.insert(evi, ev);
+                evi += 1;
+            }
             let i_cluster = cluster_mat(&mut mat);
-            for clust in i_cluster {}
+            for clust in i_cluster.iter() {
+                let mut clustered_events= Vec::new();
+                for v in clust.iter() {
+                    clustered_events.push(ev_map.remove(v).unwrap().clone());
+                }
+                // cool! we have our cluster of events.
+                if clustered_events.len() > 0 {
+                    conjs.push(max(clustered_events));
+                }
+            }
 
             conjs
         };
