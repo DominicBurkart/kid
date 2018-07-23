@@ -17,7 +17,7 @@ extern crate kodama;
 use bytes::Bytes;
 use geo::{Bbox, Coordinate, Point, Polygon};
 use kodama::{linkage, Method, Dendrogram};
-use ndarray::{ArrayBase, Array, Dim};
+use ndarray::{ArrayBase, Array, Axis};
 use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -441,9 +441,20 @@ fn cluster_mat(ar: &Array2<f64>) -> Vec<Vec<usize>> {
     unimplemented!();
 }
 
+/// yields a triangle (not including diagonal) from the symmetric similarity matrix for kodama
 fn condense_similarity_matrix(ar: &Array2<f64>) -> Vec<f64> {
-
-    unimplemented!()
+    let debug = true;
+    if debug {
+        assert_eq!(ar.shape()[0], ar.shape()[1]);
+    }
+    let n = ar.shape()[0];
+    let mut out = Vec::new();
+    for i1 in 1..n - 1 {
+        for i2 in i1..n {
+            out.push(ar[[i1, i2]]);
+        }
+    }
+    out
 }
 
 fn hierarchical_clustering(sim: &mut Vec<f64>) -> Dendrogram<f64> {
