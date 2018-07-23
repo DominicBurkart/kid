@@ -12,10 +12,12 @@ extern crate regex;
 extern crate lazy_static;
 #[macro_use]
 extern crate quick_error;
+extern crate kodama;
 
 use bytes::Bytes;
 use geo::{Bbox, Coordinate, Point, Polygon};
-use ndarray::{Array, Dim};
+use kodama::{linkage, Method, Dendrogram};
+use ndarray::{ArrayBase, Array, Dim};
 use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -176,9 +178,9 @@ pub fn compare_conjugate_similarity(conj1: &EventConjugate, conj2: &EventConjuga
     // needs to pull apart similarities in the two conjugates
 }
 
-fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array<f64, Dim<[usize; 2]>> {
+fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array2<f64> {
     let n = vector.len();
-    let mut ar = Array::<f64, _>::ones((n, n));
+    let mut ar = Array2::<f64>::ones((n, n));
     let mut done = HashMap::new();
 
     for ((i, j), elt) in ar.indexed_iter_mut() {
@@ -188,7 +190,7 @@ fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array<f64, Dim<
                 Some(m) => {
                     *elt = *m;
                     continue;
-                },
+                }
                 None => {
                     *elt = compare_conjugate_similarity(vector.get(i).unwrap(),
                                                         vector.get(j).unwrap());
@@ -428,6 +430,29 @@ pub struct AssertionMaster {
     containers: HashMap<String, AssertionContainer>, // this might become a b tree based on semantic overlap instead.
 }
 
+/// takes a (symmetrics) similarity matrix and clusters all of the values. Returns a vector of the
+/// vectors of the indices for the original values for each cluster, e.g:
+/// vec![vec![value_index1, value_index2...] // cluster 1 values, vec![value_indexN, ...] // cluster 2 values, ... // so on for each cluster]
+///
+/// current algorithm is the kodama crate's implementation of the hierarchical clustering work by Müllner
+fn cluster_mat(ar: &Array2<f64>) -> Vec<Vec<usize>> {
+    let dend = hierarchical_clustering(&mut condense_similarity_matrix(ar));
+    // todo implement decision for K here or in hierarchical_clustering
+    unimplemented!();
+}
+
+fn condense_similarity_matrix(ar: &Array2<f64>) -> Vec<f64> {
+
+    unimplemented!()
+}
+
+fn hierarchical_clustering(sim: &mut Vec<f64>) -> Dendrogram<f64> {
+    let l = sim.len();
+    let dend = linkage(sim, l, Method::Average);
+    // todo decide on K here?
+    unimplemented!();
+}
+
 /// first pass of generating assertions from a vector of instances.
 fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
     let debug = true;
@@ -478,35 +503,53 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
     }
 
     /// the goal of this function is to detect (disprovable, specifically postulated) patterns in a series of events.
-    let mut relation_assertion = |s: &HashSet<&Event>, out: &mut Vec<Assertion>| {
+    let mut relation_assertion= |s: &HashSet<&'a Event>, out: &mut Vec<Assertion>| {
         /// take in a set of event conjugates and, for the non-None conjugates, form shared
         /// event / action / state system.
-        let mut soft_rules = |v: Vec<&Option<EventConjugate>>| -> Vec<EventConjugate> {
+        let mut soft_rules = |vector: Vec<&'a Option<EventConjugate>>| -> Vec<EventConjugate> {
+            let mut maximal = |v: Vec<&'a Option<EventConjugate>>| -> (Option<EventConjugate>, Vec<&'a EventConjugate>) {
+                let mut maximal_union = EventConjugate::new();
+                let mut unwrapped = Vec::new();
+
+                let mut first = true;
+                for item in v.iter() {
+                    match item {
+                        &&Some(ref evconj) => {
+                            unwrapped.push(evconj);
+                            if first {
+                                maximal_union = evconj.clone();
+                                first = false;
+                            }
+                            maximal_union = conjugate_union(&maximal_union, evconj);
+                        }
+                        &&None => ()
+                    }
+                }
+                if first == true {
+                    return (None, unwrapped);
+                }
+                (Some(maximal_union), unwrapped)
+            };
+
             if debug {
-                assert!(v.len() > 0);
+                assert!(vector.len() > 0);
             }
 
             let mut conjs = Vec::new();
-            let mut maximal_union = EventConjugate::new();
 
-            // begin by generating the union of the conjugates – the shared features across all rules.
-            let mut first = true;
-            for item in v.iter() {
-                match item {
-                    &&Some(ref evconj) => {
-                        if first {
-                            maximal_union = evconj.clone();
-                            first = false;
-                        }
-                        maximal_union = conjugate_union(&maximal_union, evconj);
-                    }
-                    &&None => ()
-                }
-            }
-            conjs.push(maximal_union);
+            let all_evs = match maximal(vector) {
+                (Some(m), all_evs) => {
+                    conjs.push(m);
+                    all_evs
+                },
+                (None, all_evs) => all_evs
+            };
+
 
             // next partition the events by clustering on conjugate similarity.
-            
+            let mut mat = conjugate_similarity_matrix(&all_evs);
+            let i_cluster = cluster_mat(&mut mat);
+            for clust in i_cluster {}
 
             conjs
         };
