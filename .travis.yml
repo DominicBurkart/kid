@@ -5,19 +5,15 @@ matrix:
     include:
         - os: linux
           rust: stable
-          env: ARCH=x86_64
 
         - os: osx
           rust: stable
-          env: ARCH=x86_64
 
         - os: osx
           rust: beta
-          env: ARCH=x86_64
 
         - os: osx
           rust: nightly
-          env: ARCH=x86_64
 
 cache:
   - cargo
@@ -33,3 +29,5 @@ addons:
 script:
   - cargo build
   - if [[ $TRAVIS_OS_NAME = linux ]]; then cargo install cargo-kcov; cargo kcov --print-install-kcov-sh | sh; travis_wait cargo kcov --verbose --lib --coveralls; bash <(curl -s https://codecov.io/bash); else travis_wait cargo test; fi
+#  - cargo build --release
+#  - ./target/release/kid
