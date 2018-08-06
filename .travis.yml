@@ -1,19 +1,30 @@
 sudo: required
 
-os:
-  - linux
-  - osx
-language: rust
-rust:
-  - stable
-  - beta
-  - nightly
+
+matrix:
+    include:
+        - os: linux
+          rust: stable
+          env: ARCH=x86_64
+
+        - os: osx
+          rust: stable
+          env: ARCH=x86_64
+
+        - os: osx
+          rust: beta
+          env: ARCH=x86_64
+
+        - os: osx
+          rust: nightly
+          env: ARCH=x86_64
+
 cache:
   - cargo
   - apt
 addons:
   apt:
-    packages: # all reqs for kcov
+    packages:
       - binutils-dev
       - libcurl4-openssl-dev
       - libelf-dev
