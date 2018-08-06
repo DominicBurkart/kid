@@ -136,17 +136,13 @@ pub struct PhysicalEntity {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct EventConjugate {
-    actions: Vec<Action>,
-    states: Vec<State>,
-    entities: Vec<Entity>,
+    vals: Vec<Relation>,
 }
 
 impl EventConjugate {
     pub fn new() -> Self {
         EventConjugate {
-            actions: Vec::new(),
-            states: Vec::new(),
-            entities: Vec::new(),
+            vals: Vec::new(),
         }
     }
 }
@@ -207,7 +203,7 @@ fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array2<f64> {
 }
 
 pub fn conjugate_union(conj1: &EventConjugate, conj2: &EventConjugate) -> EventConjugate {
-    unimplemented!()
+    unimplemented!();
 }
 
 /// Causal rule. Since we can never know if we are not detecting some entity, we must treat even
@@ -541,9 +537,9 @@ fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
 fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
     let debug = true;
 
-    fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<RelRef<'a>, HashSet<&'a Event>>) {
-        let mut check_or_insert = |r: RelRef<'a>| {
-            if c.contains_key(&r) {
+    fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<&'a Relation, HashSet<&'a Event>>) {
+        let mut check_or_insert = |r: &'a Relation| {
+            if c.contains_key(r) {
                 let mut s = c.get_mut(&r).unwrap();
                 if !s.contains(e) {
                     s.insert(e);
@@ -557,14 +553,8 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
 
         match e.before {
             Some(ref evconj) => {
-                for v in evconj.actions.iter() {
-                    check_or_insert(RelRef::Action(v));
-                }
-                for v in evconj.states.iter() {
-                    check_or_insert(RelRef::State(v));
-                }
-                for v in evconj.entities.iter() {
-                    check_or_insert(RelRef::Entity(v));
+                for v in evconj.vals.iter() {
+                    check_or_insert(v);
                 }
             }
             None => (),
@@ -572,14 +562,8 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
 
         match e.after {
             Some(ref evconj) => {
-                for v in evconj.actions.iter() {
-                    check_or_insert(RelRef::Action(v));
-                }
-                for v in evconj.states.iter() {
-                    check_or_insert(RelRef::State(v));
-                }
-                for v in evconj.entities.iter() {
-                    check_or_insert(RelRef::Entity(v));
+                for v in evconj.vals.iter() {
+                    check_or_insert(v);
                 }
             }
             None => (),
@@ -707,7 +691,7 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
     };
 
     let mut out: Vec<Assertion> = Vec::new();
-    let mut crosscheck: HashMap<RelRef, HashSet<&'a Event>> = HashMap::new();
+    let mut crosscheck: HashMap<&'a Relation, HashSet<&'a Event>> = HashMap::new();
     for inst in insts.iter() {
         for e in inst.events.iter() {
             set(e, &mut out, &mut crosscheck);
@@ -725,7 +709,7 @@ fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
     unimplemented!() // todo
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum Relation {
     Entity(Entity),
     Action(Action),
@@ -1020,19 +1004,10 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 
     let mut parse_event = |es: &str, r: &mut HashMap<String, (String, String)>| -> Event {
         fn vec_to_conjugate(v: Vec<Relation>) -> EventConjugate {
-            let mut o = EventConjugate {
-                actions: Vec::new(),
-                states: Vec::new(),
-                entities: Vec::new(),
-            };
-            for r in v.into_iter() {
-                match r {
-                    Relation::Action(a) => o.actions.push(a),
-                    Relation::State(s) => o.states.push(s),
-                    Relation::Entity(e) => o.entities.push(e)
-                }
-            };
-            o
+            EventConjugate {
+                vals: v
+            }
+
         }
 
         let time_split = ARROW.find(es).unwrap().start();
@@ -1044,7 +1019,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         if debug { println!("Relation vectors for event found. Converting to EventConjugate and returning Event.") };
 
         let before = match bvec {
-            Ok(bev) => Some(vec_to_conjugate(bev)),
+            Ok(bev) => Some(EventConjugate{vals: bev}),
             Err(error) => {
                 if debug {
                     println!("Error in parse_event: {}", error);
@@ -1054,7 +1029,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         };
 
         let after = match avec {
-            Ok(afv) => Some(vec_to_conjugate(afv)),
+            Ok(afv) => Some(EventConjugate{vals: afv}),
             Err(error) => {
                 if debug {
                     println!("Error in parse_event: {}", error);
