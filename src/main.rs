@@ -24,6 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Keys;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -135,9 +136,9 @@ pub struct PhysicalEntity {
     scale: u64, // log scale where 0 == subatomic
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone)]
 pub struct EventConjugate {
-    vals: Vec<Relation>,
+    vals: HashSet<Relation>,
 }
 
 impl EventConjugate {
@@ -204,7 +205,26 @@ fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array2<f64> {
 }
 
 pub fn conjugate_union(conj1: &EventConjugate, conj2: &EventConjugate) -> EventConjugate {
-    unimplemented!();
+    let mut evs1 = HashMap::new();
+    let mut evs2 = HashMap::new();
+
+    for hm in [evs1, evs2].into_iter() {
+        hm.insert("action", Vec::new());
+        hm.insert("state", Vec::new());
+        hm.insert("entity", Vec::new());
+    }
+
+    for ec in [conj1, conj2].into_iter() {
+        for relation in ec.vals.iter() {
+            match relation {
+                &Action(a) => evs1.get_mut("action").unwrap().push(a),
+                &State(s) => evs1.get_mut("state").unwrap().push(s),
+                &Entity(e) => evs1.get_mut("state").unwrap().push(e),
+            };
+        }
+    }
+
+    unimplemented!()
 }
 
 /// Causal rule. Since we can never know if we are not detecting some entity, we must treat even
@@ -279,7 +299,7 @@ impl Effect for CausalRule {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone)]
 pub struct Event {
     before: Option<EventConjugate>,
     after: Option<EventConjugate>,
