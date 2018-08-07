@@ -144,7 +144,7 @@ pub struct EventConjugate {
 impl EventConjugate {
     pub fn new() -> Self {
         EventConjugate {
-            vals: Vec::new(),
+            vals: HashSet::new(),
         }
     }
 }
@@ -204,27 +204,27 @@ fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array2<f64> {
     ar
 }
 
-pub fn conjugate_union(conj1: &EventConjugate, conj2: &EventConjugate) -> EventConjugate {
-    let mut evs1 = HashMap::new();
-    let mut evs2 = HashMap::new();
+pub fn conjugate_union(ins: &Vec<&EventConjugate>) -> EventConjugate {
+    if DEBUG { assert!(ins.len() > 0) }
 
-    for hm in [evs1, evs2].into_iter() {
-        hm.insert("action", Vec::new());
-        hm.insert("state", Vec::new());
-        hm.insert("entity", Vec::new());
-    }
+    let mut outset = HashSet::new();
 
-    for ec in [conj1, conj2].into_iter() {
-        for relation in ec.vals.iter() {
-            match relation {
-                &Action(a) => evs1.get_mut("action").unwrap().push(a),
-                &State(s) => evs1.get_mut("state").unwrap().push(s),
-                &Entity(e) => evs1.get_mut("state").unwrap().push(e),
-            };
+    for relation in ins.get(0).unwrap().iter() {
+        let mut all = true;
+        for ev in ins.iter() {
+            if !ev.contains(relation) {
+                all = false;
+                break;
+            }
+        }
+        if all {
+            outset.insert(relation.clone());
         }
     }
 
-    unimplemented!()
+    EventConjugate {
+        vals: outset
+    }
 }
 
 /// Causal rule. Since we can never know if we are not detecting some entity, we must treat even
@@ -558,7 +558,7 @@ fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
 fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
     
 
-    fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<&'a Relation, HashSet<&'a Event>>) {
+    fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<&'a Relation, HashSet<&'a ref Event>>) {
         let mut check_or_insert = |r: &'a Relation| {
             if c.contains_key(r) {
                 let mut s = c.get_mut(&r).unwrap();
@@ -598,43 +598,30 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
         let mut soft_rules = |vector: Vec<&'a Option<EventConjugate>>| -> Vec<EventConjugate> {
             /// yields the maximal
             let mut maximal = |v: Vec<&'a Option<EventConjugate>>| -> (Option<EventConjugate>, Vec<&'a EventConjugate>) {
-                let mut maximal_union = EventConjugate::new();
                 let mut unwrapped = Vec::new();
-
                 let mut first = true;
                 for item in v.iter() {
                     match item {
                         &&Some(ref evconj) => {
                             if first {
-                                maximal_union = evconj.clone();
                                 first = false;
                             }
-                            maximal_union = conjugate_union(&maximal_union, evconj);
+                            unwrapped.push(evconj);
                         }
                         &&None => ()
                     }
                 }
-                if first == true {
+                if first {
                     return (None, unwrapped);
                 }
-                (Some(maximal_union), unwrapped)
+                (Some(conjugate_union(&unwrapped)), unwrapped)
             };
 
-            let mut max = |v: Vec<EventConjugate>| -> EventConjugate {
-                let mut maximal_union = EventConjugate::new();
-
-                let mut first = true;
-                for evconj in v.into_iter() {
-                    if first {
-                        maximal_union = evconj.clone();
-                        first = false;
-                    }
-                    maximal_union = conjugate_union(&maximal_union, &evconj);
-                }
-                if first == true {
+            let mut max = |v: &Vec<&EventConjugate>| -> EventConjugate {
+                if DEBUG && v.len() == 0 {
                     panic!("Array of 0 length passed to closure.")
                 }
-                maximal_union
+                conjugate_union(v)
             };
 
             if DEBUG {
@@ -670,7 +657,7 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
                     }
                     // cool! we have our cluster of events.
                     if clustered_events.len() > 0 {
-                        conjs.push(max(clustered_events));
+                        conjs.push(max(&clustered_events));
                     }
                 }
             }
