@@ -22,13 +22,22 @@ use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Keys;
+use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const DEBUG: bool = true;
+lazy_static!{
+    pub static ref ARGS: HashSet<String> = env::args().collect();
+    pub static ref DEBUG: bool = is_arg("debug");
+}
+
+fn is_arg(arg: &str) -> bool {
+    let s = arg.to_string();
+    ARGS.contains(&s) || ARGS.contains(&s.to_uppercase())
+}
 
 pub fn cur() -> Duration {
     SystemTime::now().duration_since(UNIX_EPOCH).expect("SystemTime::duration_since failed")
@@ -205,7 +214,7 @@ fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array2<f64> {
 }
 
 pub fn conjugate_union(ins: &Vec<&EventConjugate>) -> EventConjugate {
-    if DEBUG { assert!(ins.len() > 0) }
+    if *DEBUG { assert!(ins.len() > 0) }
 
     let mut outset = HashSet::new();
 
@@ -459,8 +468,7 @@ fn cluster_mat(ar: &Array2<f64>) -> Vec<Vec<usize>> {
 
 /// yields a triangle (not including diagonal) from a symmetric matrix.
 fn condense_symmetric_matrix(ar: &Array2<f64>) -> Vec<f64> {
-    
-    if DEBUG {
+    if *DEBUG {
         assert_eq!(ar.shape()[0], ar.shape()[1]);
     }
     let n = ar.shape()[0] as usize;
@@ -475,8 +483,7 @@ fn condense_symmetric_matrix(ar: &Array2<f64>) -> Vec<f64> {
 
 /// creates a new matrix of the same size as the input that is 1-value for each value in the input.
 fn similar_to_dissimilar(ar: &Array2<f64>) -> Array2<f64> {
-    
-    if DEBUG {
+    if *DEBUG {
         assert_eq!(ar.shape()[0], ar.shape()[1]);
     }
     Array2::<f64>::ones((ar.shape()[0], ar.shape()[1])) - ar
@@ -485,11 +492,9 @@ fn similar_to_dissimilar(ar: &Array2<f64>) -> Array2<f64> {
 
 /// kodama crate's implementation of the hierarchical clustering work by Müllner.
 fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
-    
-
     /// Returns the index of the value with the highest second dirivative. ignores first and last values (dirivative incalculable).
     fn i_of_greatest_second_d(v: Vec<f64>) -> usize {
-        if DEBUG {
+        if *DEBUG {
             assert!(v.len() > 2);
         }
         let mut d2 = |i: usize| -> f64 { (v.get(i + 1).unwrap() + v.get(i - 1).unwrap() - 2. * v.get(i).unwrap()).abs() };
@@ -534,7 +539,7 @@ fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
         out
     }
 
-    if DEBUG {
+    if *DEBUG {
         assert!(sim.len() > 1);
     }
 
@@ -772,9 +777,9 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 
     // trivial implementation: relation exists if MRT file suggests it does, with probability based on
 // trust of the file.
-    
 
-    if DEBUG {
+
+    if *DEBUG {
         println!("Parsing string: {}", s);
     }
 
@@ -793,12 +798,12 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
     fn rel_and_params<'r>(m: regex::Match, s: &'r str) -> (&'r str, &'r str) {
         let fs = m.start();
         let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
-        if DEBUG {
+        if *DEBUG {
             println!("relation start index: {}", fs);
             println!("relation end index: {}", sp);
         }
         let relation = &s[fs..sp]; //relation
-        if DEBUG {
+        if *DEBUG {
             println!("relation: {}", relation);
             println!("string: {}", s);
         }
@@ -870,7 +875,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         }
 
         let prim_rel = |relstr: &str, parstr: &str| -> Relation {
-            if DEBUG {
+            if *DEBUG {
                 println!("Parsing primitive relation");
             }
             match relstr {
@@ -912,7 +917,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         /// definition.
         let mut parse_relation = |relstr: &str, parstr: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
             if !r.contains_key(relstr) {
-                if DEBUG { println!("Undefined complex relation: {}", relstr) }
+                if *DEBUG { println!("Undefined complex relation: {}", relstr) }
                 return Err(KidError::UndefinedComplexRelation);
             }
 
@@ -921,7 +926,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 
                 // since we've seen this key before, let's unpack it.
                 let &(ref or, ref un) = r.get(relstr).unwrap();
-                if DEBUG {
+                if *DEBUG {
                     println!("original parameters of complex relation: {}", or);
                     println!("un-imputed definition of complex relation: {}", un);
                 }
@@ -930,7 +935,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                 let mut parmap = HashMap::new();
                 let keys = spl(&original);
                 let vals = spl(parstr);
-                if DEBUG { assert_eq!(keys.len(), vals.len()) };
+                if *DEBUG { assert_eq!(keys.len(), vals.len()) };
                 for i in 0..keys.len() {
                     parmap.insert(keys[i], vals[i]);
                 }
@@ -960,23 +965,23 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
                     }
                     out = out[..out.len() - 1].to_string() + &un[endp..n(un, endp)];
                 }
-                if DEBUG { println!("Mapped: {}", out) };
+                if *DEBUG { println!("Mapped: {}", out) };
                 out.to_string()
             };
 
             parse_relations(&mapped, r) // recurse until the relations have all been simplified.
         };
 
-        if DEBUG {
+        if *DEBUG {
             println!("in parse_relations");
         }
         let mut vec = Vec::new();
         let mut ents = HashSet::new();
-        if DEBUG {
+        if *DEBUG {
             println!("Find_iter through string {}", s);
         }
         for m in RELATION.find_iter(s) {
-            if DEBUG {
+            if *DEBUG {
                 println!("iterating");
             }
 // for each m we know that we have chars, a start paren, chars, and an end paren.
@@ -987,7 +992,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             }
 
             if primitive(relation) {
-                if DEBUG {
+                if *DEBUG {
                     println!("Parsing primitive relation: {}", relation);
                 }
                 vec.push(prim_rel(relation, params));
@@ -1019,17 +1024,17 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         }
 
         let time_split = ARROW.find(es).unwrap().start();
-        if DEBUG {
+        if *DEBUG {
             println!("Finding relations for two substrings: {} and {}", &es[..time_split], &es[time_split..]);
         }
         let (bvec, avec) = parsplit(es, time_split, r);
 
-        if DEBUG { println!("Relation vectors for event found. Converting to EventConjugate and returning Event.") };
+        if *DEBUG { println!("Relation vectors for event found. Converting to EventConjugate and returning Event.") };
 
         let before = match bvec {
-            Ok(bev) => Some(EventConjugate{vals: HashSet::from_iter(bev)}),
+            Ok(bev) => Some(EventConjugate { vals: BTreeSet::from_iter(bev) }),
             Err(error) => {
-                if DEBUG {
+                if *DEBUG {
                     println!("Error in parse_event: {}", error);
                 }
                 None
@@ -1039,7 +1044,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         let after = match avec {
             Ok(afv) => Some(EventConjugate{vals: HashSet::from_iter(afv)}),
             Err(error) => {
-                if DEBUG {
+                if *DEBUG {
                     println!("Error in parse_event: {}", error);
                 }
                 None
@@ -1122,7 +1127,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         };
 
 
-        if DEBUG {
+        if *DEBUG {
             println!("in c() with str of {}", st);
             println!("COLON match: {}", n(COLON.find(st)));
             println!("ARROW match: {}", n(ARROW.find(st)));
@@ -1143,25 +1148,25 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 
     match c(&s, r) {
         Ce::A => {
-            if DEBUG {
+            if *DEBUG {
                 println!("Assertion detected. Parsing.")
             }
             Some(MinParseItem::A(parse_assertion(s, r)))
         }
         Ce::E => {
-            if DEBUG {
+            if *DEBUG {
                 println!("Event detected. Parsing.")
             }
             Some(MinParseItem::E(parse_event(s, r)))
         }
         Ce::R => {
-            if DEBUG {
+            if *DEBUG {
                 println!("Complex relation parsed.")
             }
             None
         }
         Ce::Bad => {
-            if DEBUG {
+            if *DEBUG {
                 println!("Bad string detected.")
             }
             None
@@ -1177,8 +1182,6 @@ fn minimal_predict_string(before: String, am: AssertionMaster) -> String {
 }
 
 fn parse_minimal(fname: &Path, name: String) -> Instance {
-    
-
     fn read_lines(fname: &Path) -> Vec<String> {
         fn remove_comments(s: &str) -> Option<&str> {
             match s.find("//") {
