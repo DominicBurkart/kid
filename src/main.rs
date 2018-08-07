@@ -20,7 +20,7 @@ use kodama::{Dendrogram, linkage, Method};
 use ndarray::{Array, ArrayBase, Axis};
 use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeSet};
 use std::collections::hash_map::Keys;
 use std::env;
 use std::fs::File;
@@ -112,7 +112,7 @@ pub struct ProcessedData {
     format_name: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Action {
     source: String,
     //entity id
@@ -122,7 +122,7 @@ pub struct Action {
     is_variable: bool,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct State {
     ent: String,
     // entity id
@@ -131,7 +131,7 @@ pub struct State {
 }
 
 // i'm super interested in seeing what the data structure for holding Actions, States, and Entities will look like!
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Entity {
     name: String,
     is_variable: bool,
@@ -145,15 +145,15 @@ pub struct PhysicalEntity {
     scale: u64, // log scale where 0 == subatomic
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct EventConjugate {
-    vals: HashSet<Relation>,
+    vals: BTreeSet<Relation>,
 }
 
 impl EventConjugate {
     pub fn new() -> Self {
         EventConjugate {
-            vals: HashSet::new(),
+            vals: BTreeSet::new(),
         }
     }
 }
@@ -216,14 +216,17 @@ fn conjugate_similarity_matrix(vector: &Vec<&EventConjugate>) -> Array2<f64> {
 pub fn conjugate_union(ins: &Vec<&EventConjugate>) -> EventConjugate {
     if *DEBUG { assert!(ins.len() > 0) }
 
-    let mut outset = HashSet::new();
+    let mut outset = BTreeSet::new();
 
-    for relation in ins.get(0).unwrap().iter() {
+    for relation in ins.get(0).unwrap().vals.iter() {
         let mut all = true;
+        let mut first = true;
         for ev in ins.iter() {
-            if !ev.contains(relation) {
-                all = false;
-                break;
+            if first { first = false } else {
+                if !ev.vals.contains(relation) { // todo fuzz this match
+                    all = false;
+                    break;
+                }
             }
         }
         if all {
@@ -308,7 +311,7 @@ impl Effect for CausalRule {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq,)]
 pub struct Event {
     before: Option<EventConjugate>,
     after: Option<EventConjugate>,
@@ -470,6 +473,11 @@ fn cluster_mat(ar: &Array2<f64>) -> Vec<Vec<usize>> {
 fn condense_symmetric_matrix(ar: &Array2<f64>) -> Vec<f64> {
     if *DEBUG {
         assert_eq!(ar.shape()[0], ar.shape()[1]);
+        for i1 in 0..ar.shape()[0] {
+            for i2 in 0..ar.shape()[1] {
+                assert_eq!(ar[[i1, i2]], ar[[i2, i1]]); // confirms symmetric
+            }
+        }
     }
     let n = ar.shape()[0] as usize;
     let mut out = Vec::new();
@@ -561,43 +569,8 @@ fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
 
 /// first pass of generating assertions from a vector of instances.
 fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
-    
-
-    fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<&'a Relation, HashSet<&'a ref Event>>) {
-        let mut check_or_insert = |r: &'a Relation| {
-            if c.contains_key(r) {
-                let mut s = c.get_mut(&r).unwrap();
-                if !s.contains(e) {
-                    s.insert(e);
-                }
-            } else {
-                let mut s = HashSet::new();
-                s.insert(e);
-                c.insert(r, s);
-            }
-        };
-
-        match e.before {
-            Some(ref evconj) => {
-                for v in evconj.vals.iter() {
-                    check_or_insert(v);
-                }
-            }
-            None => (),
-        };
-
-        match e.after {
-            Some(ref evconj) => {
-                for v in evconj.vals.iter() {
-                    check_or_insert(v);
-                }
-            }
-            None => (),
-        };
-    }
-
     /// the goal of this function is to detect (disprovable, specifically postulated) patterns in a series of events.
-    let mut relation_assertion = |s: &HashSet<&'a Event>, out: &mut Vec<Assertion>| {
+    let mut relation_assertion = |s: &BTreeSet<&'a Event>, out: &mut Vec<Assertion>| {
         /// take in a set of event conjugates and, for the non-None conjugates, form shared
         /// event / action / state system. Also returns all non-None events from the input.
         let mut soft_rules = |vector: Vec<&'a Option<EventConjugate>>| -> Vec<EventConjugate> {
@@ -623,13 +596,13 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
             };
 
             let mut max = |v: &Vec<&EventConjugate>| -> EventConjugate {
-                if DEBUG && v.len() == 0 {
+                if *DEBUG && v.len() == 0 {
                     panic!("Array of 0 length passed to closure.")
                 }
                 conjugate_union(v)
             };
 
-            if DEBUG {
+            if *DEBUG {
                 assert!(vector.len() > 0);
             }
 
@@ -658,7 +631,7 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
                 for clust in i_cluster.iter() {
                     let mut clustered_events = Vec::new();
                     for v in clust.iter() {
-                        clustered_events.push(ev_map.remove(v).unwrap().clone());
+                        clustered_events.push(ev_map.remove(v).unwrap());
                     }
                     // cool! we have our cluster of events.
                     if clustered_events.len() > 0 {
@@ -703,8 +676,42 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
         }
     };
 
+    fn set<'a>(e: &'a Event, a: &mut Vec<Assertion>, c: &mut HashMap<&'a Relation, BTreeSet<&'a Event>>) {
+        let mut check_or_insert = |r: &'a Relation| {
+            if c.contains_key(r) {
+                let mut s = c.get_mut(&r).unwrap();
+                if !s.contains(e) {
+                    s.insert(e);
+                }
+            } else {
+                let mut s = BTreeSet::new();
+                s.insert(e);
+                c.insert(r, s);
+            }
+        };
+
+        match e.before {
+            Some(ref evconj) => {
+                for v in evconj.vals.iter() {
+                    check_or_insert(v);
+                }
+            }
+            None => (),
+        };
+
+        match e.after {
+            Some(ref evconj) => {
+                for v in evconj.vals.iter() {
+                    check_or_insert(v);
+                }
+            }
+            None => (),
+        };
+    }
+
+
     let mut out: Vec<Assertion> = Vec::new();
-    let mut crosscheck: HashMap<&'a Relation, HashSet<&'a Event>> = HashMap::new();
+    let mut crosscheck: HashMap<&'a Relation, BTreeSet<&'a Event>> = HashMap::new();
     for inst in insts.iter() {
         for e in inst.events.iter() {
             set(e, &mut out, &mut crosscheck);
@@ -722,7 +729,7 @@ fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
     unimplemented!() // todo
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 enum Relation {
     Entity(Entity),
     Action(Action),
@@ -1018,9 +1025,8 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
     let mut parse_event = |es: &str, r: &mut HashMap<String, (String, String)>| -> Event {
         fn vec_to_conjugate(v: Vec<Relation>) -> EventConjugate {
             EventConjugate {
-                vals: HashSet::from_iter(v)
+                vals: BTreeSet::from_iter(v)
             }
-
         }
 
         let time_split = ARROW.find(es).unwrap().start();
@@ -1042,7 +1048,7 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
         };
 
         let after = match avec {
-            Ok(afv) => Some(EventConjugate{vals: HashSet::from_iter(afv)}),
+            Ok(afv) => Some(EventConjugate { vals: BTreeSet::from_iter(afv) }),
             Err(error) => {
                 if *DEBUG {
                     println!("Error in parse_event: {}", error);
