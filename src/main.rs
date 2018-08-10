@@ -13,6 +13,8 @@ extern crate lazy_static;
 #[macro_use]
 extern crate quick_error;
 extern crate kodama;
+#[macro_use(c)]
+extern crate cute;
 
 use bytes::Bytes;
 use geo::{Bbox, Coordinate, Point, Polygon};
@@ -20,16 +22,18 @@ use kodama::{Dendrogram, linkage, Method};
 use ndarray::{Array, ArrayBase, Axis};
 use ndarray::prelude::{Array1, Array2};
 use regex::Regex;
-use std::collections::{HashMap, HashSet, BTreeSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::collections::hash_map::Keys;
 use std::env;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-lazy_static!{
+lazy_static! {
     pub static ref ARGS: HashSet<String> = env::args().collect();
     pub static ref DEBUG: bool = is_arg("debug");
 }
@@ -311,7 +315,7 @@ impl Effect for CausalRule {
     }
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq,)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, )]
 pub struct Event {
     before: Option<EventConjugate>,
     after: Option<EventConjugate>,
@@ -340,6 +344,27 @@ pub struct Format {
     processed_from: Vec<InstanceData>, // types that can be processed into this format
 }
 
+impl Format {
+    pub fn mrt(filepath: &str) -> Format {
+        Format {
+            name: "MRT".to_string(),
+            processed_from: vec![
+                InstanceData::Pat(PathBuf::from(filepath),
+                                  InstMetaData {
+                                      name: "MRT".to_string(),
+                                      kind: "txt".to_string(),
+                                  })],
+        }
+    }
+
+    pub fn unknown() -> Format {
+        Format {
+            name: "unknown".to_string(),
+            processed_from: Vec::new(),
+        }
+    }
+}
+
 
 //enum ProofResponse {
 //    B(bool),
@@ -349,7 +374,24 @@ pub struct Format {
 //    S(String),
 //}
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+struct ProofFn {
+    v: Arc<Box<Fn(&Proof, &Instance) -> bool>>,
+}
+
+impl ProofFn {
+    fn new(b: Box<Fn(&Proof, &Instance) -> bool>) -> Self {
+        ProofFn {
+            v: Arc::new(b)
+        }
+    }
+
+    fn on(&self, pr: &Proof, inst: &Instance) -> bool {
+        (self.v)(pr, inst)
+    }
+}
+
+#[derive(Clone)]
 pub struct Proof {
     format: Format,
     // matches name field of Format this works on
@@ -357,56 +399,119 @@ pub struct Proof {
     // should increment until it maxes out, then stay constant
     avg_runtime: Duration,
     //averaging uses times_used
-    tier: u8,
-    // smaller value -> more consistent
-    conditions: Vec<Event>, // all the actions, states, entities, and relations necessary for the proof.
+
+    proof: Option<ProofFn>,
+
+    conditions: Option<Vec<Event>>,
+    // all the actions, states, entities, and relations necessary for the proof.
+
+    tier: u8, // smaller value -> more consistent
 }
 
 impl Proof {
-    fn prove(self, inst: Instance) -> bool {
-        let mut matched = false;
-        for sev in self.conditions.iter() {
-            matched = false;
-            for iev in inst.events.iter() {
-                if match_events(iev, sev) {
-                    matched = true;
-                    break
+    fn new() -> Proof {
+        Proof {
+            format: Format::unknown(),
+            times_used: 0,
+            avg_runtime: Duration::from_secs(0),
+            proof: None,
+            conditions: None,
+            tier: 0,
+        }
+    }
+
+    fn prove(&mut self, inst: &Instance) -> bool {
+        match self.conditions {
+            Some(ref conds) => {
+                for sev in conds.iter() {
+                    let mut matched = false;
+                    for iev in inst.events.iter() {
+                        if match_events(iev, sev) {
+                            matched = true;
+                            break
+                        }
+                    }
+                    if !matched {
+                        return false;
+                    }
+                }
+                true
+            }
+            None => {
+                match self.proof {
+                    Some(_) => {
+                        self.update_runtime_wrapper(inst)
+                    }
+                    None => panic!("No custom proof or conditions set"),
                 }
             }
-            if !matched {
-                return false;
-            }
         }
-        true
+    }
+
+    fn update_runtime_wrapper(&mut self, inst: &Instance) -> bool {
+        let now = Instant::now();
+        let res = { if let Some(ref p) = self.proof { p.on(self, inst) } else { panic!("No proof") } };
+        let t = now.elapsed();
+        if self.times_used > 0 {
+            let secs = ((self.avg_runtime.as_secs() * self.times_used as u64) + t.as_secs()) / (self.times_used as u64 + 1);
+            let nanos = ((self.avg_runtime.subsec_nanos() * self.times_used) + t.subsec_nanos()) / (self.times_used as u32 + 1);
+            self.avg_runtime = Duration::new(secs, nanos);
+        } else if self.times_used == 0 {
+            self.avg_runtime = t;
+        }
+        if std::u32::MAX - 1 < self.times_used {
+            self.times_used += 1;
+        }
+        res
     }
 }
 
-fn strongest_proof<'a>(map: &'a HashMap<String, Vec<Proof>>, keys: Keys<String, Vec<ProcessedData>>) -> Option<&'a Proof> {
-    let mut choice: Option<&'a Proof> = None;
+fn strongest_proof<'a>(map: &'a mut HashMap<String, Vec<Proof>>, keys: Keys<String, Vec<ProcessedData>>) -> Option<&'a mut Proof> {
+    let mut valid_keys = HashSet::new();
     for k in keys {
         if map.contains_key(k) && map[k].len() > 0 {
-            match choice {
-                None => choice = Some(&map[k][0]),
-                _ => (),
-            }
-            let c = choice.unwrap();
-            for p in &map[k] {
-                if p.tier < c.tier || (p.tier == c.tier && p.avg_runtime < c.avg_runtime) {
-                    choice = Some(p);
-                }
-            }
+            valid_keys.insert(k);
         }
     }
-    choice
+
+    if valid_keys.len() == 0 { return None; }
+
+    let e = "".to_string();
+
+    let i = {
+        let mut c = &map[*valid_keys.iter().next().unwrap()][0];
+        let mut ci = (&e, 0);
+        let mut up = false;
+
+        for k in valid_keys.iter() {
+            if map[*k].len() > 0 {
+                up = false;
+                let mut ini = 0;
+                for p in map[*k].iter() {
+                    if p.tier < c.tier || (p.tier == c.tier && p.avg_runtime < c.avg_runtime) {
+                        c = p;
+                        ci.1 = ini;
+                        up = true;
+                    }
+                    ini += 1;
+                }
+                if up { ci.0 = k }
+            }
+        }
+
+        ci
+    };
+
+    Some(map.get_mut(i.0).unwrap().get_mut(i.1).unwrap())
 }
 
 /// Selects based on tier and then average performance time.
-fn select_proof<'a>(proofs: &'a HashMap<String, Vec<Proof>>, instance: &Instance) -> Option<&'a Proof> {
+fn select_proof<'a>(proofs: &'a mut HashMap<String, Vec<Proof>>, instance: &Instance) -> Option<&'a mut Proof> {
     strongest_proof(proofs, instance.processed_data.keys())
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Assertion {
     //format.name is the string key
     proofs: HashMap<String, Vec<Proof>>,
@@ -419,13 +524,12 @@ pub struct Assertion {
 }
 
 impl Assertion {
-    fn prove(self, instance: Instance) {
-        let poption = select_proof(&self.proofs, &instance);
+    fn prove(&mut self, instance: &Instance) -> bool {
+        let poption = select_proof(&mut self.proofs, &instance);
         match poption {
-            Some(_proof) => println!("Neat!"), // todo based on four potential assertion outcomes
-            None => println!("ok!"),
+            Some(mut proof) => proof.prove(instance), // todo complicate bool into four potential outcomes
+            None => unimplemented!(),
         }
-// todo
     }
 }
 
@@ -437,7 +541,6 @@ impl AssertionDiagnostic {
 // todo: outlier analysis on proof outputs
 }
 
-#[derive(Clone)]
 pub struct AssertionContainer {
     name: String,
     semantic_shape: Option<SemanticShape>,
@@ -500,7 +603,7 @@ fn similar_to_dissimilar(ar: &Array2<f64>) -> Array2<f64> {
 
 /// kodama crate's implementation of the hierarchical clustering work by Müllner.
 fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
-    /// Returns the index of the value with the highest second dirivative. ignores first and last values (dirivative incalculable).
+    /// Returns the index of the value with the highest approximated second derivative. ignores first and last values (approx incalculable).
     fn i_of_greatest_second_d(v: Vec<f64>) -> usize {
         if *DEBUG {
             assert!(v.len() > 2);
@@ -540,11 +643,7 @@ fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
         // great! because of how we've traversed the dendrogram, the only contents of clustmap are
         // clusters named by arbitrary keys that contain values that correspond with the indices of
         // the original values.
-        let mut out = Vec::new();
-        for (_, v) in clustmap.drain() {
-            out.push(v);
-        }
-        out
+        c![kv_tup.1, for kv_tup in clustmap.drain()]
     }
 
     if *DEBUG {
@@ -559,10 +658,7 @@ fn hierarchical_clustering(sim: &mut Vec<f64>) -> Vec<Vec<usize>> {
 
     let dend = linkage(sim, l, Method::Average);
 
-    let mut dissims = Vec::new();
-    for step in dend.steps() {
-        dissims.push(step.dissimilarity);
-    }
+    let dissims = c![step.dissimilarity, for step in dend.steps()];
 
     assign_to_clusters_from_step(dend, i_of_greatest_second_d(dissims), l)
 }
@@ -647,15 +743,14 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
             unimplemented!()
 //            Assertion {
 //
-////            //format.name is the string key
-////            proofs: HashMap < String,
-////            Vec<Proof> >,
-////            id: usize,
-////            // should equal ID of AssertionContainer
-////            container_name: String,
-////            // duration since epoch of last_diagnostic
-////            last_diagnostic: Duration,
-////            updated_since: bool, // updated since last diagnostic
+//            //format.name is the string key
+//            proofs: HashMap < String, Vec<Proof> >,
+//            id: usize,
+//            // should equal ID of AssertionContainer
+//            container_name: String,
+//            // duration since epoch of last_diagnostic
+//            last_diagnostic: Duration,
+//            updated_since: bool, // updated since last diagnostic
 //            }
         };
 
@@ -1061,19 +1156,9 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
     };
 
     let mut parse_assertion = |s: &str, r: &mut HashMap<String, (String, String)>| -> Assertion {
-        let proof = Proof {
-            format: Format {
-                name: "MRT".to_string(),
-                processed_from: vec![InstanceData::Pat(PathBuf::from(filepath), InstMetaData {
-                    name: "MRT".to_string(),
-                    kind: "txt".to_string(),
-                })],
-            },
-            times_used: 0,
-            avg_runtime: Duration::new(0, 0),
-            tier: 0,
-            conditions: vec![parse_event(&COLON.replace_all(s, "->").into_owned(), r)],
-        };
+        let mut proof = Proof::new();
+        proof.format = Format::mrt(filepath);
+        proof.conditions = Some(vec![parse_event(&COLON.replace_all(s, "->").into_owned(), r)]);
 
         let mut proofs = HashMap::new();
         proofs.insert(proof.format.name.clone(), vec![proof]);
@@ -1247,10 +1332,6 @@ fn parse_minimal(fname: &Path, name: String) -> Instance {
 
     let (mut va, mut vc, mut ve) = process_lines(read_lines(fname));
 
-    println!("{:?}", va);
-    println!("{:?}", vc);
-    println!("{:?}", ve);
-
     Instance {
         name,
         observed: cur(),
@@ -1339,8 +1420,7 @@ fn main() {
     let mut diagnostics = generate_diagnostics(&assertions);
 // diagnostics will be essential for optimizing assertion calculation.
 
-    let mut
-    inst_vec = vec![min_inst];
+    let mut inst_vec = vec![min_inst];
 // I'm still deciding how to deal with semantics and instance organization for when we have
 // A Lot of instances.
 // important considerations: accessibility based on entities, actions, semantic content, and
