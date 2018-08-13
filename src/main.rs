@@ -15,8 +15,11 @@ extern crate quick_error;
 extern crate kodama;
 #[macro_use(c)]
 extern crate cute;
+#[macro_use]
+extern crate funfun;
 
 use bytes::Bytes;
+use funfun::ArcFn;
 use geo::{Bbox, Coordinate, Point, Polygon};
 use kodama::{Dendrogram, linkage, Method};
 use ndarray::{Array, ArrayBase, Axis};
@@ -25,7 +28,7 @@ use regex::Regex;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::collections::hash_map::Keys;
 use std::env;
-use std::fmt::Debug;
+use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::iter::FromIterator;
@@ -83,16 +86,16 @@ pub struct Location {
 }
 
 pub struct SemanticEmbedding {
-    // glove
-    glove_vec: [f64; 300],
+    // word embedding vec
+    word_vec: [f64; 300],
     twelve_closest: [(String, f64); 12], // word, distance
 
-    // wordnet
-    supers: Vec<String>,
-    subs: Vec<String>,
-    synonyms: Vec<String>,
-    antonyms: Vec<String>,
-    meaning: String,
+//    // wordnet
+//    supers: Vec<String>,
+//    subs: Vec<String>,
+//    synonyms: Vec<String>,
+//    antonyms: Vec<String>,
+//    meaning: String,
 }
 
 #[derive(Debug, Clone)]
@@ -141,13 +144,13 @@ pub struct Entity {
     is_variable: bool,
 }
 
-#[derive(Debug)]
-pub struct PhysicalEntity {
-    instance_name: String,
-    name: String,
-    shape: GeometricShape,
-    scale: u64, // log scale where 0 == subatomic
-}
+//#[derive(Debug)]
+//pub struct PhysicalEntity {
+//    instance_name: String,
+//    name: String,
+//    shape: GeometricShape,
+//    scale: u64, // log scale where 0 == subatomic
+//}
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct EventConjugate {
@@ -162,7 +165,6 @@ impl EventConjugate {
     }
 }
 
-
 pub fn match_events(ev1: &Event, ev2: &Event) -> bool {
     true // todo. attempts to match two event conjugates.
 }
@@ -170,20 +172,20 @@ pub fn match_events(ev1: &Event, ev2: &Event) -> bool {
 //pub fn fuzzy_match_events(c1: &EventConjugate, c2: &EventConjugate) -> f64 {
 //    true // todo. yields similarity of events.
 //}
-//
+
 //pub fn compare_event_similarity(c1: &EventConjugate, c2: &EventConjugate, c3: &EventConjugate) -> f64 {
 //    true // todo. compares similarity of c1 to c2 and c3 and yields the ratio of greater similarity of c1 to c2 than c3, [0,1] (0 -> c1 and c3 are very similar, c1 and c2 are totally dissimilar).
 //}
-//
+
 pub fn contains_conjugate(inst: &Instance, conj: &EventConjugate) -> bool {
     true // todo. attempts to match event conjugate to the instance's before event conjugate.
 }
 
-//
+
 //pub fn conjugate_similarity(inst: &Instance, conj: &EventConjugate) -> bool {
 //    true // todo. attempts to match event conjugate to the instance's before event conjugate.
 //}
-//
+
 pub fn compare_conjugate_similarity(conj1: &EventConjugate, conj2: &EventConjugate) -> f64 {
     unimplemented!() // todo. attempts to fuzzy match event conjugate to the instance. output is relative similarity to conj1 vers conj2 [0,1], bigger values => more similar
     // needs to pull apart similarities in the two conjugates
@@ -268,7 +270,7 @@ pub trait Prob {
     fn prob(self, inst: &Instance) -> f64;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GeometricShape {
     dimensions: u32,
     points: Vec<Vec<f64>>,
@@ -306,7 +308,6 @@ impl Prob for CausalRule {
 
 /// Effect yields Vectors of possible outcomes to deal with inferences; for causal rules, there is
 /// only one potential outcome (as well as the probability that the causal rule applies)
-///
 impl Effect for CausalRule {
     fn effect(&self) -> Vec<&(f64, EventConjugate)> {
         let mut v = Vec::new();
@@ -375,23 +376,6 @@ impl Format {
 //}
 
 #[derive(Clone)]
-struct ProofFn {
-    v: Arc<Box<Fn(&Proof, &Instance) -> bool>>,
-}
-
-impl ProofFn {
-    fn new(b: Box<Fn(&Proof, &Instance) -> bool>) -> Self {
-        ProofFn {
-            v: Arc::new(b)
-        }
-    }
-
-    fn on(&self, pr: &Proof, inst: &Instance) -> bool {
-        (self.v)(pr, inst)
-    }
-}
-
-#[derive(Clone)]
 pub struct Proof {
     format: Format,
     // matches name field of Format this works on
@@ -400,12 +384,18 @@ pub struct Proof {
     avg_runtime: Duration,
     //averaging uses times_used
 
-    proof: Option<ProofFn>,
+    proof: Option<ArcFn<Fn(&Proof, &Instance) -> bool>>,
 
     conditions: Option<Vec<Event>>,
     // all the actions, states, entities, and relations necessary for the proof.
 
     tier: u8, // smaller value -> more consistent
+}
+
+impl fmt::Debug for Proof {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Proof {{ format: {:?}, tier: {}, conditions: {:?}, times_used: {}, avg_runtime: {:?} }}", self.format, self.tier, self.conditions, self.times_used, self.avg_runtime)
+    }
 }
 
 impl Proof {
@@ -450,19 +440,23 @@ impl Proof {
 
     fn update_runtime_wrapper(&mut self, inst: &Instance) -> bool {
         let now = Instant::now();
-        let res = { if let Some(ref p) = self.proof { p.on(self, inst) } else { panic!("No proof") } };
-        let t = now.elapsed();
-        if self.times_used > 0 {
-            let secs = ((self.avg_runtime.as_secs() * self.times_used as u64) + t.as_secs()) / (self.times_used as u64 + 1);
-            let nanos = ((self.avg_runtime.subsec_nanos() * self.times_used) + t.subsec_nanos()) / (self.times_used as u32 + 1);
-            self.avg_runtime = Duration::new(secs, nanos);
-        } else if self.times_used == 0 {
-            self.avg_runtime = t;
+        if let Some(ref p) = self.proof {
+            let res = p(self, inst);
+            let t = now.elapsed();
+            if self.times_used > 0 {
+                let secs = ((self.avg_runtime.as_secs() * self.times_used as u64) + t.as_secs()) / (self.times_used as u64 + 1);
+                let nanos = ((self.avg_runtime.subsec_nanos() * self.times_used) + t.subsec_nanos()) / (self.times_used as u32 + 1);
+                self.avg_runtime = Duration::new(secs, nanos);
+            } else if self.times_used == 0 {
+                self.avg_runtime = t;
+            }
+            if std::u32::MAX - 1 < self.times_used {
+                self.times_used += 1;
+            }
+            res
+        } else {
+            unreachable!("No proof")
         }
-        if std::u32::MAX - 1 < self.times_used {
-            self.times_used += 1;
-        }
-        res
     }
 }
 
@@ -511,7 +505,7 @@ fn select_proof<'a>(proofs: &'a mut HashMap<String, Vec<Proof>>, instance: &Inst
 }
 
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Assertion {
     //format.name is the string key
     proofs: HashMap<String, Vec<Proof>>,
@@ -527,7 +521,7 @@ impl Assertion {
     fn new() -> Self {
         Assertion {
             updated_since: true,
-            last_diagnostic: Duration::new(0,0),
+            last_diagnostic: Duration::new(0, 0),
             container_name: "unknown".to_string(),
             id: 0,
             proofs: HashMap::new(),
@@ -750,18 +744,16 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
         };
 
         let mut into_assertion = |before: EventConjugate, after: EventConjugate| -> Assertion {
-            unimplemented!()
-//            Assertion {
-//
-//            //format.name is the string key
-//            proofs: HashMap < String, Vec<Proof> >,
-//            id: usize,
-//            // should equal ID of AssertionContainer
-//            container_name: String,
-//            // duration since epoch of last_diagnostic
-//            last_diagnostic: Duration,
-//            updated_since: bool, // updated since last diagnostic
-//            }
+            let e = Event {
+                before: Some(before),
+                after: Some(after),
+            };
+            let mut p = Proof::new();
+            p.format = Format::mrt("unknown"); // todo pass this!
+            p.conditions = Some(vec![e]);
+            let mut a = Assertion::new();
+            a.proofs.insert(p.format.name.clone(), vec![p]);
+            a
         };
 
         let mut befores = Vec::new();
@@ -831,7 +823,12 @@ fn generate_assertions<'a>(insts: Vec<&'a Instance>) -> Vec<Assertion> {
 }
 
 fn generate_diagnostics(inst: &Vec<Assertion>) -> Vec<AssertionDiagnostic> {
-    unimplemented!() // todo
+    if *DEBUG {
+        println!("{:?}", inst);
+        Vec::new()
+    } else {
+        unimplemented!()
+    }
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -1277,8 +1274,8 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 
 /// Usually kid will be constantly predicting a whole bunch of things and processing those
 /// predictions in a lot of ways (e.g. to self-optimize and to decide how to act). But, for the
-/// minimal case, we're just looking at a simple prediction
-fn minimal_predict_string(before: String, am: AssertionMaster) -> String {
+/// minimal case, we're just looking at a simple prediction.
+fn minimal_predict_string(before: String, am: &mut AssertionMaster) -> String {
     unimplemented!(); // todo
 }
 
@@ -1451,7 +1448,7 @@ fn main() {
         name: "core".to_string(),
         assertions: Vec::new(),
         diagnostics,
-        semantic_shape: Some(shape_from_instances(&inst_vec)),
+        semantic_shape: None, // todo: Some(shape_from_instances(&inst_vec)),
     };
     for ass in assertions.into_iter() {
         core_ac.add(ass);
@@ -1462,5 +1459,5 @@ fn main() {
 
 //next up we want to predict something.
     let ptext = "state(match, burning) + state(newspaper, wet) + symmetric_action(newspaper, match, touching)".to_string();
-    println!("{}", minimal_predict_string(ptext, am));
+    println!("{}", minimal_predict_string(ptext, &mut am));
 }
