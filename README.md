@@ -21,6 +21,6 @@ described as a series of actions, states, and entities.
 input are also expressed as a series of actions, states, and entities.
 - self-optimization: sets of classifiers are trained for popular rules,
 and both accuracy and speed are used to select the classifier used.
-- rule evolution: if different classifiers yield different output for
+- rule reproduction: if different classifiers yield different output for
 the same rule, the program splits the rule and determines which new rule
 works best in each application of the previous, single rule.
