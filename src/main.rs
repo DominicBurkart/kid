@@ -524,6 +524,16 @@ pub struct Assertion {
 }
 
 impl Assertion {
+    fn new() -> Self {
+        Assertion {
+            updated_since: true,
+            last_diagnostic: Duration::new(0,0),
+            container_name: "unknown".to_string(),
+            id: 0,
+            proofs: HashMap::new(),
+        }
+    }
+
     fn prove(&mut self, instance: &Instance) -> bool {
         let poption = select_proof(&mut self.proofs, &instance);
         match poption {
