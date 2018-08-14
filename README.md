@@ -12,15 +12,22 @@ will happen next. For example, given a lit match touching dry paper,
 predict that the paper will catch on fire.
 
 Notable features:
-- use of word embeddings (here fastText) to generalize learned rules
-onto similar cases.
 - use of human-readable, high-level input: all observations are
 described as a series of actions, states, and entities.
-- rule chaining: rules can be defined as a set of other rules.
 - understandable inferences used throughout: rules generated based on
 input are also expressed as a series of actions, states, and entities.
+
+Beyond the minimal use case:
+- rule chaining: rules can be defined as a set of other rules.
+- use of word embeddings (here fastText) to generalize learned rules
+onto similar cases.
 - self-optimization: sets of classifiers are trained for popular rules,
 and both accuracy and speed are used to select the classifier used.
 - rule reproduction: if different classifiers yield different output for
 the same rule, the program splits the rule and determines which new rule
 works best in each application of the previous, single rule.
+
+Upcoming tasks:
+- restructure assertions (particularly how they hold proofs)
+- restructure Formats / InstanceData and how they're made to clarify
+data sources.
