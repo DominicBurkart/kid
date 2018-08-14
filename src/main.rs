@@ -440,12 +440,62 @@ impl Proof {
         }
     }
 
+    /// currently looks at exact matches
+    fn select_by_event<'a>(&'a mut self, evs: &HashSet<Relation>) -> (u32, &'a mut Event) {
+        match self.conditions {
+            None => panic!(), // figuring out what to do with custom proofs is beyond the minimal use case.
+            Some(ref mut evec) => {
+                let mut max: u32 = 0;
+                let mut maxi = 0;
+                let mut curi = 0;
+                for ev in evec.iter_mut() {
+                    match ev.before {
+                        Some(ref mut before) => {
+                            let mut contained = 0;
+                            for v in before.vals.iter() {
+                                if evs.contains(v) { contained += 1; }
+                            }
+                            if contained > max {
+                                max = contained;
+                                maxi = curi;
+                            }
+                        },
+                        None => (),
+                    };
+                    curi += 1;
+                }
+                (max, evec.get_mut(maxi).unwrap())
+            }
+        }
+    }
+
     fn predict(&mut self, evs: &HashSet<Relation>) -> f64 {
-        unimplemented!()
+        let (count, event) = self.select_by_event(evs);
+        let len = match event.before {
+            Some(ref conj) => {
+                conj.vals.len()
+            },
+            None => { unreachable!() }
+        };
+        count as f64 / len as f64
     }
 
     fn given(&mut self, evs: &HashSet<Relation>) -> HashSet<Relation> {
-        unimplemented!()
+        let (count, event) = self.select_by_event(evs);
+        if *DEBUG {
+            println!("minimal case: just regurgitate the states in the event's out conditions");
+        }
+        let out = match event.after {
+            Some(ref a) => {
+                let mut h = HashSet::new();
+                for r in a.vals.iter() {
+                    h.insert(r.clone());
+                }
+                h
+            },
+            None => panic!(),
+        };
+        out
     }
 
     fn update_runtime_wrapper(&mut self, inst: &Instance) -> bool {
@@ -514,11 +564,29 @@ fn select_proof<'a>(proofs: &'a mut HashMap<String, Vec<Proof>>, instance: &Inst
     strongest_proof(proofs, instance.processed_data.keys())
 }
 
-/// Selects based on tier and then average performance time.
 fn select_proof_given_set<'a>(proofs: &'a mut HashMap<String, Vec<Proof>>,
-                          set: &HashSet<Relation>) -> Option<&'a mut Proof> {
-    unimplemented!()
+                              set: &HashSet<Relation>) -> Option<&'a mut Proof> {
+    let mut best_match = |v: Vec<&'a mut Proof>| -> &'a mut Proof {
+        // only calculable for conditions-based proofs. yikes.
+        if v.len() == 1 {
+            v.into_iter().next().unwrap()
+        } else {
+            unimplemented!()
+        }
+    };
+
+    let mut potentials = Vec::new();
+    // todo restructure Proofs / Assertions bc this is not optimal.
+    if proofs.len() == 0 {
+        return None;
+    } else {
+        for s in proofs.values_mut() {
+            potentials.extend(s);
+        }
+    }
+    return Some(best_match(potentials));
 }
+
 
 #[derive(Debug, Clone)]
 pub struct Assertion {
@@ -549,27 +617,6 @@ impl Assertion {
             Some(mut proof) => proof.prove(instance), // todo complicate bool into four potential outcomes
             None => unimplemented!(),
         }
-    }
-
-    fn select_proof_given_set<'a>(&'a mut self, set: &HashSet<Relation>) -> Option<&'a mut Proof> {
-        let mut best_match = |v: Vec<&'a mut Proof>| -> &'a mut Proof {
-            // only calculable for conditions-based proofs. yikes.
-            for p in v.iter() {
-
-            }
-            unimplemented!()
-        };
-
-        let mut potentials = Vec::new();
-        // todo restructure Proofs / Assertions bc this is not optimal.
-        if self.proofs.len() == 0 {
-            return None;
-        } else {
-            for s in self.proofs.values_mut() {
-                potentials.extend(s);
-            }
-        }
-        return Some(best_match(potentials));
     }
 
     fn predict(&mut self, set: &HashSet<Relation>) -> f64 {
@@ -1528,5 +1575,5 @@ fn main() {
 
 //next up we want to predict something.
     let ptext = "state(match, burning) + state(newspaper, wet) + symmetric_action(newspaper, match, touching)";
-    println!("{:?}", minimal_predict_string(ptext, &mut am));
+    println!("Program complete. Prediction: {:?}", minimal_predict_string(ptext, &mut am));
 }

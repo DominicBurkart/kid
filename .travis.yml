@@ -35,5 +35,5 @@ install:
 script:
   - cargo build
   - if [[ $TRAVIS_OS_NAME = linux ]]; then cargo install cargo-kcov; cargo kcov --print-install-kcov-sh | sh; travis_wait cargo kcov --verbose --coveralls; bash <(curl -s https://codecov.io/bash); else travis_wait cargo test debug; fi
-#  - cargo build --release
-#  - ./target/release/kid
+  - cargo build --release
+  - time ./target/release/kid debug
