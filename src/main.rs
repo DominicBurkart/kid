@@ -411,31 +411,41 @@ impl Proof {
     }
 
     fn prove(&mut self, inst: &Instance) -> bool {
-        match self.conditions {
-            Some(ref conds) => {
-                for sev in conds.iter() {
-                    let mut matched = false;
-                    for iev in inst.events.iter() {
-                        if match_events(iev, sev) {
-                            matched = true;
-                            break
-                        }
-                    }
-                    if !matched {
-                        return false;
-                    }
-                }
-                true
+        match self.proof {
+            Some(_) => {
+                self.update_runtime_wrapper(inst)
             }
             None => {
-                match self.proof {
-                    Some(_) => {
-                        self.update_runtime_wrapper(inst)
+                match self.conditions {
+                    Some(ref conds) => {
+                        for sev in conds.iter() {
+                            let mut matched = false;
+                            for iev in inst.events.iter() {
+                                if match_events(iev, sev) {
+                                    matched = true;
+                                    break
+                                }
+                            }
+                            if !matched {
+                                return false;
+                            }
+                        }
+                        true
                     }
-                    None => panic!("No custom proof or conditions set"),
+                    None => {
+                        panic!("No custom proof or conditions set")
+                    }
                 }
             }
         }
+    }
+
+    fn predict(&mut self, evs: &HashSet<Relation>) -> f64 {
+        unimplemented!()
+    }
+
+    fn given(&mut self, evs: &HashSet<Relation>) -> HashSet<Relation> {
+        unimplemented!()
     }
 
     fn update_runtime_wrapper(&mut self, inst: &Instance) -> bool {
@@ -504,6 +514,11 @@ fn select_proof<'a>(proofs: &'a mut HashMap<String, Vec<Proof>>, instance: &Inst
     strongest_proof(proofs, instance.processed_data.keys())
 }
 
+/// Selects based on tier and then average performance time.
+fn select_proof_given_set<'a>(proofs: &'a mut HashMap<String, Vec<Proof>>,
+                          set: &HashSet<Relation>) -> Option<&'a mut Proof> {
+    unimplemented!()
+}
 
 #[derive(Debug, Clone)]
 pub struct Assertion {
@@ -533,6 +548,43 @@ impl Assertion {
         match poption {
             Some(mut proof) => proof.prove(instance), // todo complicate bool into four potential outcomes
             None => unimplemented!(),
+        }
+    }
+
+    fn select_proof_given_set<'a>(&'a mut self, set: &HashSet<Relation>) -> Option<&'a mut Proof> {
+        let mut best_match = |v: Vec<&'a mut Proof>| -> &'a mut Proof {
+            // only calculable for conditions-based proofs. yikes.
+            for p in v.iter() {
+
+            }
+            unimplemented!()
+        };
+
+        let mut potentials = Vec::new();
+        // todo restructure Proofs / Assertions bc this is not optimal.
+        if self.proofs.len() == 0 {
+            return None;
+        } else {
+            for s in self.proofs.values_mut() {
+                potentials.extend(s);
+            }
+        }
+        return Some(best_match(potentials));
+    }
+
+    fn predict(&mut self, set: &HashSet<Relation>) -> f64 {
+        let mut poption = select_proof_given_set(&mut self.proofs, set);
+        match poption {
+            Some(mut proof) => proof.predict(set),
+            None => unimplemented!()
+        }
+    }
+
+    fn given(&mut self, set: &HashSet<Relation>) -> HashSet<Relation> {
+        let mut poption = select_proof_given_set(&mut self.proofs, set);
+        match poption {
+            Some(mut proof) => proof.given(set),
+            None => unimplemented!()
         }
     }
 }
@@ -861,64 +913,251 @@ fn spl<'a>(s: &'a str) -> Vec<&'a str> {
     vec
 }
 
-/// parses an MRT (minimal relations text) string.
-fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a mut HashMap<String, (String, String)>, filepath: &str) -> Option<MinParseItem> {
-    quick_error! {
-        #[derive(Debug)]
-        pub enum KidError {
-            UndefinedComplexRelation {
-                description("Undefined complex relation")
-            }
+quick_error! {
+    #[derive(Debug)]
+    pub enum KidError {
+        UndefinedComplexRelation {
+            description("Undefined complex relation")
         }
     }
+}
 
-    lazy_static! {
-        pub static ref RELATION: Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
-        pub static ref STARTPAREN: Regex = Regex::new("[(]").unwrap();
-        pub static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
-        pub static ref ARROW : Regex = Regex::new("->").unwrap();
-        pub static ref COLON : Regex = Regex::new(":").unwrap();
+lazy_static! {
+    pub static ref RELATION: Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
+    pub static ref STARTPAREN: Regex = Regex::new("[(]").unwrap();
+    pub static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
+    pub static ref ARROW : Regex = Regex::new("->").unwrap();
+    pub static ref COLON : Regex = Regex::new(":").unwrap();
 
-        pub static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
-        "state".to_string(), "entity".to_string()];
+    pub static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
+    "state".to_string(), "entity".to_string()];
+}
+
+/// takes in a series of relations (usually one side of a color or arrow in an MRT line) and
+/// recursively parses those relations until they are reduced into simple relations (entity,
+/// state, and action declarations).
+fn parse_relations<'b>(s: &'b str, r: &mut HashMap<String, (String, String)>) -> Result<Vec<Relation>, KidError> {
+    /// Add implicitly declared entities (entities only referenced by actions and states).
+    fn add_impl_entities<'params>(rel: &str, params: &'params str, ents: &
+    mut HashSet<&'params str>) -> Vec<Entity> {
+        fn is_entity(rel: &str, i: i32, ent: &str) -> bool {
+            match rel {
+                "action" => {
+                    match i {
+                        0 => true,
+                        1 => true,
+                        2 => false,
+                        _ => panic!("Unexpected i")
+                    }
+                }
+                "state" => {
+                    match i {
+                        0 => true,
+                        1 => false,
+                        _ => panic!("Unexpected i")
+                    }
+                }
+                "entity" => {
+                    assert! {i == 0}
+                    true
+                }
+                _ => false, // wait until parse_relations recurses into just simple relations.
+            }
+        }
+
+        let mut out = Vec::new();
+        let mut i = 0;
+        for ent in spl(params) {
+            if !ents.contains(ent) && is_entity(rel, i, ent) {
+                out.push(
+                    Entity {
+                        name: ent.to_string(),
+                        is_variable: ent.starts_with("_"),
+                    }
+                );
+                ents.insert(ent);
+            } // todo deal with entity variables
+            i = i + 1;
+        }
+        out
     }
 
+    let prim_rel = |relstr: &str, parstr: &str| -> Relation {
+        if *DEBUG {
+            println!("Parsing primitive relation");
+        }
+        match relstr {
+            "action" => {
+                let splitted = spl(parstr);
+                Relation::Action(
+                    Action {
+                        source: splitted[0].to_string(),
+                        target: splitted[1].to_string(),
+                        name: splitted[2].to_string(),
+                        is_variable: splitted[2].starts_with("_"),
+                    }
+                )
+            }
+            "state" => {
+                let splitted = spl(parstr);
+                Relation::State(
+                    State {
+                        ent: splitted[0].to_string(),
+                        name: splitted[1].to_string(),
+                        is_variable: splitted[1].starts_with("_"),
+                    }
+                )
+            }
+            "entity" => {
+                Relation::Entity(
+                    Entity {
+                        name: parstr.to_string(),
+                        is_variable: parstr.starts_with("_"),
+                    }
+                )
+            }
+            _ => panic!("Non-primary assertion passed to prim_rel. Unable to parse.")
+        }
+    };
 
+    /// parse a single complex relation by recursively calling parse_relations on
+    /// the definition of the complex relation, with the values in the relation imputed into the
+    /// definition.
+    let mut parse_relation = |relstr: &str, parstr: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
+        if !r.contains_key(relstr) {
+            if *DEBUG { println!("Undefined complex relation: {}", relstr) }
+            return Err(KidError::UndefinedComplexRelation);
+        }
+
+        let mapped = {
+            // "mapped" is the definition of the complex relation with the variables filled in.
+
+            // since we've seen this key before, let's unpack it.
+            let &(ref or, ref un) = r.get(relstr).unwrap();
+            if *DEBUG {
+                println!("original parameters of complex relation: {}", or);
+                println!("un-imputed definition of complex relation: {}", un);
+            }
+            let original = or.to_string();
+            let unpacked = un.to_string();
+            let mut parmap = HashMap::new();
+            let keys = spl(&original);
+            let vals = spl(parstr);
+            if *DEBUG { assert_eq!(keys.len(), vals.len()) };
+            for i in 0..keys.len() {
+                parmap.insert(keys[i], vals[i]);
+            }
+
+            let n = |s: &str, i: usize| -> usize {
+                // remainder of string or next alphanumeric / underscore sequence
+                match RELATION.find(&s[i..]) {
+                    Some(relmatch) => relmatch.start(),
+                    None => s.len()
+                }
+            };
+
+            let mut out = "".to_string();
+
+            for pmatch in STARTPAREN.find_iter(un) {
+                let startp = pmatch.start();
+
+                out = out + &un[..startp] + "("; // start with the relation and paren
+
+                let endp = startp + ENDPAREN.find(&un[startp..]).unwrap().start();
+                for defparam in spl(&un[startp + 1..endp]).into_iter() {
+                    if parmap.contains_key(defparam) {
+                        out = out + " " + parmap.get(defparam).unwrap() + ",";
+                    } else {
+                        out = out + " " + defparam + ",";
+                    }
+                }
+                out = out[..out.len() - 1].to_string() + &un[endp..n(un, endp)];
+            }
+            if *DEBUG { println!("Mapped: {}", out) };
+            out.to_string()
+        };
+
+        parse_relations(&mapped, r) // recurse until the relations have all been simplified.
+    };
+
+    if *DEBUG {
+        println!("in parse_relations");
+    }
+    let mut vec = Vec::new();
+    let mut ents = HashSet::new();
+    if *DEBUG {
+        println!("Find_iter through string {}", s);
+    }
+    for m in RELATION.find_iter(s) {
+        if *DEBUG {
+            println!("iterating");
+        }
+// for each m we know that we have chars, a start paren, chars, and an end paren.
+        let (relation, params) = rel_and_params(m, s);
+
+        for implicit_entity in add_impl_entities(relation, params, &mut ents) {
+            vec.push(Relation::Entity(implicit_entity))
+        }
+
+        if primitive(relation) {
+            if *DEBUG {
+                println!("Parsing primitive relation: {}", relation);
+            }
+            vec.push(prim_rel(relation, params));
+        } else {
+            match parse_relation(relation, params, r) {
+                Ok(resp) => vec.extend(resp),
+                Err(KidError::UndefinedComplexRelation) => {
+                    if vec.len() == 0 {
+                        // todo i think this is where we're messing up in parsing right-side references to complex relations.
+                        // define the complex relation then!
+                        r.insert(relation.to_string(), (params.to_string(), s[COLON.find(&s).unwrap().start() + 1..].to_string()));
+                    } else {
+                        panic!("Undeclared complex relation")
+                    }
+                }
+            };
+        }
+    }
+    println!("{:?}", vec);
+    Ok(vec)
+}
+
+/// checks if the relation &str matches "action" "state" or "entity"
+fn primitive(s: &str) -> bool {
+    match s {
+        "action" => true,
+        "state" => true,
+        "entity" => true,
+        _ => false
+    }
+}
+
+/// returns the relation string and parameter string for a given relation.
+/// For example, "action(kelly, lauren, hugs)" -> ("action", "kelly, lauren, hugs")
+fn rel_and_params<'r>(m: regex::Match, s: &'r str) -> (&'r str, &'r str) {
+    let fs = m.start();
+    let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
+    if *DEBUG {
+        println!("relation start index: {}", fs);
+        println!("relation end index: {}", sp);
+    }
+    let relation = &s[fs..sp]; //relation
+    if *DEBUG {
+        println!("relation: {}", relation);
+        println!("string: {}", s);
+    }
+    let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start() + sp + 1]; //relation values
+    (relation, params)
+}
+
+/// parses an MRT (minimal relations text) string.
+fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a mut HashMap<String, (String, String)>, filepath: &str) -> Option<MinParseItem> {
     // trivial implementation: relation exists if MRT file suggests it does, with probability based on
-// trust of the file.
-
-
+    // trust of the file.
     if *DEBUG {
         println!("Parsing string: {}", s);
     }
-
-    /// checks if the relation &str matches "action" "state" or "entity"
-    fn primitive(s: &str) -> bool {
-        match s {
-            "action" => true,
-            "state" => true,
-            "entity" => true,
-            _ => false
-        }
-    };
-
-    /// returns the relation string and parameter string for a given relation.
-    /// For example, "action(kelly, lauren, hugs)" -> ("action", "kelly, lauren, hugs")
-    fn rel_and_params<'r>(m: regex::Match, s: &'r str) -> (&'r str, &'r str) {
-        let fs = m.start();
-        let sp = fs + STARTPAREN.find(&s[fs..]).unwrap().start(); // start parenthesis
-        if *DEBUG {
-            println!("relation start index: {}", fs);
-            println!("relation end index: {}", sp);
-        }
-        let relation = &s[fs..sp]; //relation
-        if *DEBUG {
-            println!("relation: {}", relation);
-            println!("string: {}", s);
-        }
-        let params = &s[sp + 1..ENDPAREN.find(&s[sp + 1..]).unwrap().start() + sp + 1]; //relation values
-        (relation, params)
-    };
 
     /// parses relations of both sides of a colon or arrow in an MRT line
     fn parsplit(es: &str, split: usize, r: &mut HashMap<String, (String, String)>) -> (Result<Vec<Relation>, KidError>, Result<Vec<Relation>, KidError>) {
@@ -933,196 +1172,6 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             panic!("Bad separator")
         }
     }
-
-    /// takes in a series of relations (usually one side of a color or arrow in an MRT line) and
-    /// recursively parses those relations until they are reduced into simple relations (entity,
-    /// state, and action declarations).
-    fn parse_relations<'b>(s: &'b str, r: &mut HashMap<String, (String, String)>) -> Result<Vec<Relation>, KidError> {
-        /// Add implicitly declared entities (entities only referenced by actions and states).
-        fn add_impl_entities<'params>(rel: &str, params: &'params str, ents: &
-        mut HashSet<&'params str>) -> Vec<Entity> {
-            fn is_entity(rel: &str, i: i32, ent: &str) -> bool {
-                match rel {
-                    "action" => {
-                        match i {
-                            0 => true,
-                            1 => true,
-                            2 => false,
-                            _ => panic!("Unexpected i")
-                        }
-                    }
-                    "state" => {
-                        match i {
-                            0 => true,
-                            1 => false,
-                            _ => panic!("Unexpected i")
-                        }
-                    }
-                    "entity" => {
-                        assert! {i == 0}
-                        true
-                    }
-                    _ => false, // wait until parse_relations recurses into just simple relations.
-                }
-            }
-
-            let mut out = Vec::new();
-            let mut i = 0;
-            for ent in spl(params) {
-                if !ents.contains(ent) && is_entity(rel, i, ent) {
-                    out.push(
-                        Entity {
-                            name: ent.to_string(),
-                            is_variable: ent.starts_with("_"),
-                        }
-                    );
-                    ents.insert(ent);
-                } // todo deal with entity variables
-                i = i + 1;
-            }
-            out
-        }
-
-        let prim_rel = |relstr: &str, parstr: &str| -> Relation {
-            if *DEBUG {
-                println!("Parsing primitive relation");
-            }
-            match relstr {
-                "action" => {
-                    let splitted = spl(parstr);
-                    Relation::Action(
-                        Action {
-                            source: splitted[0].to_string(),
-                            target: splitted[1].to_string(),
-                            name: splitted[2].to_string(),
-                            is_variable: splitted[2].starts_with("_"),
-                        }
-                    )
-                }
-                "state" => {
-                    let splitted = spl(parstr);
-                    Relation::State(
-                        State {
-                            ent: splitted[0].to_string(),
-                            name: splitted[1].to_string(),
-                            is_variable: splitted[1].starts_with("_"),
-                        }
-                    )
-                }
-                "entity" => {
-                    Relation::Entity(
-                        Entity {
-                            name: parstr.to_string(),
-                            is_variable: parstr.starts_with("_"),
-                        }
-                    )
-                }
-                _ => panic!("Non-primary assertion passed to prim_rel. Unable to parse.")
-            }
-        };
-
-        /// parse a single complex relation by recursively calling parse_relations on
-        /// the definition of the complex relation, with the values in the relation imputed into the
-        /// definition.
-        let mut parse_relation = |relstr: &str, parstr: &str, r: &mut HashMap<String, (String, String)>| -> Result<Vec<Relation>, KidError> {
-            if !r.contains_key(relstr) {
-                if *DEBUG { println!("Undefined complex relation: {}", relstr) }
-                return Err(KidError::UndefinedComplexRelation);
-            }
-
-            let mapped = {
-                // "mapped" is the definition of the complex relation with the variables filled in.
-
-                // since we've seen this key before, let's unpack it.
-                let &(ref or, ref un) = r.get(relstr).unwrap();
-                if *DEBUG {
-                    println!("original parameters of complex relation: {}", or);
-                    println!("un-imputed definition of complex relation: {}", un);
-                }
-                let original = or.to_string();
-                let unpacked = un.to_string();
-                let mut parmap = HashMap::new();
-                let keys = spl(&original);
-                let vals = spl(parstr);
-                if *DEBUG { assert_eq!(keys.len(), vals.len()) };
-                for i in 0..keys.len() {
-                    parmap.insert(keys[i], vals[i]);
-                }
-
-                let n = |s: &str, i: usize| -> usize {
-                    // remainder of string or next alphanumeric / underscore sequence
-                    match RELATION.find(&s[i..]) {
-                        Some(relmatch) => relmatch.start(),
-                        None => s.len()
-                    }
-                };
-
-                let mut out = "".to_string();
-
-                for pmatch in STARTPAREN.find_iter(un) {
-                    let startp = pmatch.start();
-
-                    out = out + &un[..startp] + "("; // start with the relation and paren
-
-                    let endp = startp + ENDPAREN.find(&un[startp..]).unwrap().start();
-                    for defparam in spl(&un[startp + 1..endp]).into_iter() {
-                        if parmap.contains_key(defparam) {
-                            out = out + " " + parmap.get(defparam).unwrap() + ",";
-                        } else {
-                            out = out + " " + defparam + ",";
-                        }
-                    }
-                    out = out[..out.len() - 1].to_string() + &un[endp..n(un, endp)];
-                }
-                if *DEBUG { println!("Mapped: {}", out) };
-                out.to_string()
-            };
-
-            parse_relations(&mapped, r) // recurse until the relations have all been simplified.
-        };
-
-        if *DEBUG {
-            println!("in parse_relations");
-        }
-        let mut vec = Vec::new();
-        let mut ents = HashSet::new();
-        if *DEBUG {
-            println!("Find_iter through string {}", s);
-        }
-        for m in RELATION.find_iter(s) {
-            if *DEBUG {
-                println!("iterating");
-            }
-// for each m we know that we have chars, a start paren, chars, and an end paren.
-            let (relation, params) = rel_and_params(m, s);
-
-            for implicit_entity in add_impl_entities(relation, params, &mut ents) {
-                vec.push(Relation::Entity(implicit_entity))
-            }
-
-            if primitive(relation) {
-                if *DEBUG {
-                    println!("Parsing primitive relation: {}", relation);
-                }
-                vec.push(prim_rel(relation, params));
-            } else {
-                match parse_relation(relation, params, r) {
-                    Ok(resp) => vec.extend(resp),
-                    Err(KidError::UndefinedComplexRelation) => {
-                        if vec.len() == 0 {
-                            // todo i think this is where we're messing up in parsing right-side references to complex relations.
-                            // define the complex relation then!
-                            r.insert(relation.to_string(), (params.to_string(), s[COLON.find(&s).unwrap().start() + 1..].to_string()));
-                        } else {
-                            panic!("Undeclared complex relation")
-                        }
-                    }
-                };
-            }
-        }
-        println!("{:?}", vec);
-        Ok(vec)
-    };
 
     let mut parse_event = |es: &str, r: &mut HashMap<String, (String, String)>| -> Event {
         fn vec_to_conjugate(v: Vec<Relation>) -> EventConjugate {
@@ -1275,8 +1324,28 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
 /// Usually kid will be constantly predicting a whole bunch of things and processing those
 /// predictions in a lot of ways (e.g. to self-optimize and to decide how to act). But, for the
 /// minimal case, we're just looking at a simple prediction.
-fn minimal_predict_string(before: String, am: &mut AssertionMaster) -> String {
-    unimplemented!(); // todo
+fn minimal_predict_string<'a>(before: &str, am: &'a mut AssertionMaster) -> HashSet<Relation> {
+    let mut ents: HashMap<String, Vec<String>> = HashMap::new();
+    let mut recursive_relation_defs: HashMap<String, (String, String)> = HashMap::new();
+    let parsed = parse_relations(before, &mut recursive_relation_defs);
+    let mut relations = match parsed {
+        Ok(rel) => HashSet::from_iter(rel),
+        _ => unreachable!()
+    };
+    if *DEBUG {
+        println!("The full algorithm would use the semantic shape of the assertion \
+        containers here to limit the number of queries. For now, we'll go through all assertions.");
+    }
+
+    let mut prediction = HashSet::new();
+    for ac in am.containers.values_mut() {
+        for a in ac.assertions.iter_mut() {
+            if a.predict(&relations) > 0.5 {
+                prediction.extend(a.given(&relations));
+            }
+        }
+    }
+    prediction
 }
 
 fn parse_minimal(fname: &Path, name: String) -> Instance {
@@ -1458,6 +1527,6 @@ fn main() {
     am.containers.insert(core_ac.name.clone(), core_ac);
 
 //next up we want to predict something.
-    let ptext = "state(match, burning) + state(newspaper, wet) + symmetric_action(newspaper, match, touching)".to_string();
-    println!("{}", minimal_predict_string(ptext, &mut am));
+    let ptext = "state(match, burning) + state(newspaper, wet) + symmetric_action(newspaper, match, touching)";
+    println!("{:?}", minimal_predict_string(ptext, &mut am));
 }
