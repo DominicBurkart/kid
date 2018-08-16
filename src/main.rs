@@ -1,8 +1,8 @@
-/// notable data structures:
-/// Assertions are arguments with boolean or numeric output (e.g., x is a subset of y, or count the number of sheep in this image).
-/// Causal rules suggest transformations in a system's entities, their actions, or their states.
-/// Events contain information on how, in a specific instance, a system's entities, their actions, or their states changed.
-/// Instances are specific points of data (e.g., a video of a person dancing).
+// notable data structures:
+// Assertions are arguments with boolean or numeric output (e.g., x is a subset of y, or count the number of sheep in this image).
+// Causal rules suggest transformations in a system's entities, their actions, or their states.
+// Events contain information on how, in a specific instance, a system's entities, their actions, or their states changed.
+// Instances are specific points of data (e.g., a video of a person dancing).
 #[macro_use(array)]
 extern crate ndarray;
 extern crate bytes;
@@ -39,6 +39,24 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 lazy_static! {
     pub static ref ARGS: HashSet<String> = env::args().collect();
     pub static ref DEBUG: bool = is_arg("debug");
+
+    pub static ref RELATION: Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
+    pub static ref STARTPAREN: Regex = Regex::new("[(]").unwrap();
+    pub static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
+    pub static ref ARROW : Regex = Regex::new("->").unwrap();
+    pub static ref COLON : Regex = Regex::new(":").unwrap();
+
+    pub static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
+    "state".to_string(), "entity".to_string()];
+}
+
+quick_error! {
+    #[derive(Debug)]
+    pub enum KidError {
+        UndefinedComplexRelation {
+            description("Undefined complex relation")
+        }
+    }
 }
 
 fn is_arg(arg: &str) -> bool {
@@ -459,7 +477,7 @@ impl Proof {
                                 max = contained;
                                 maxi = curi;
                             }
-                        },
+                        }
                         None => (),
                     };
                     curi += 1;
@@ -474,7 +492,7 @@ impl Proof {
         let len = match event.before {
             Some(ref conj) => {
                 conj.vals.len()
-            },
+            }
             None => { unreachable!() }
         };
         count as f64 / len as f64
@@ -960,26 +978,6 @@ fn spl<'a>(s: &'a str) -> Vec<&'a str> {
     vec
 }
 
-quick_error! {
-    #[derive(Debug)]
-    pub enum KidError {
-        UndefinedComplexRelation {
-            description("Undefined complex relation")
-        }
-    }
-}
-
-lazy_static! {
-    pub static ref RELATION: Regex = Regex::new("^[[a-zA-Z0-9_]]*[(]").unwrap();
-    pub static ref STARTPAREN: Regex = Regex::new("[(]").unwrap();
-    pub static ref ENDPAREN : Regex = Regex::new("[)]").unwrap();
-    pub static ref ARROW : Regex = Regex::new("->").unwrap();
-    pub static ref COLON : Regex = Regex::new(":").unwrap();
-
-    pub static ref CORE_PHRASES: [String; 3] = ["action".to_string(),
-    "state".to_string(), "entity".to_string()];
-}
-
 /// takes in a series of relations (usually one side of a color or arrow in an MRT line) and
 /// recursively parses those relations until they are reduced into simple relations (entity,
 /// state, and action declarations).
@@ -1232,8 +1230,9 @@ fn string_min_parse<'a>(s: &'a str, e: &mut HashMap<String, Vec<String>>, r: &'a
             println!("Finding relations for two substrings: {} and {}", &es[..time_split], &es[time_split..]);
         }
         let (bvec, avec) = parsplit(es, time_split, r);
-
-        if *DEBUG { println!("Relation vectors for event found. Converting to EventConjugate and returning Event.") };
+        if *DEBUG {
+            println!("Relation vectors for event found. Converting to EventConjugate and returning Event.");
+        }
 
         let before = match bvec {
             Ok(bev) => Some(EventConjugate { vals: BTreeSet::from_iter(bev) }),
@@ -1541,21 +1540,21 @@ fn main() {
         None => (),
     };
     let mut diagnostics = generate_diagnostics(&assertions);
-// diagnostics will be essential for optimizing assertion calculation.
+    // diagnostics will be essential for optimizing assertion calculation.
 
     let mut inst_vec = vec![min_inst];
-// I'm still deciding how to deal with semantics and instance organization for when we have
-// A Lot of instances.
-// important considerations: accessibility based on entities, actions, semantic content, and
-// state. I haven't decided on the best data structure for this yet.
+    // I'm still deciding how to deal with semantics and instance organization for when we have
+    // A Lot of instances.
+    // important considerations: accessibility based on entities, actions, semantic content, and
+    // state. I haven't decided on the best data structure for this yet.
 
-// Maybe a series of trees for each search method with the instance index in a giant vector out
-// in the heap? It's okay if recalling specific instances (aka episodic memory) is slower than
-// the assertion stuff; that's fine and normal in humans.
+    // Maybe a series of trees for each search method with the instance index in a giant vector out
+    // in the heap? It's okay if recalling specific instances (aka episodic memory) is slower than
+    // the assertion stuff; that's fine and normal in humans.
 
-// generally we would want to check + rebalance all of our assertions (and how this is done
-// given new data will be central to the functioning of this algorithm), but for now let's
-// only look at the case of the first assertions from the first instance.
+    // generally we would want to check + rebalance all of our assertions (and how this is done
+    // given new data will be central to the functioning of this algorithm), but for now let's
+    // only look at the case of the first assertions from the first instance.
 
     let mut am = AssertionMaster {
         containers: HashMap::new()
