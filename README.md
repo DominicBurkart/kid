@@ -3,6 +3,7 @@
 [![Build Status](https://travis-ci.org/DominicBurkart/kid.svg?branch=master)](https://travis-ci.org/DominicBurkart/kid)
 [![Coverage Status](https://coveralls.io/repos/github/DominicBurkart/kid/badge.svg)](https://coveralls.io/github/DominicBurkart/kid)
 [![codecov](https://codecov.io/gh/DominicBurkart/kid/branch/master/graph/badge.svg)](https://codecov.io/gh/DominicBurkart/kid)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FDominicBurkart%2Fkid.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2FDominicBurkart%2Fkid?ref=badge_shield)
 
 
 An inference engine in rust! Currently in development.
@@ -31,3 +32,6 @@ Upcoming tasks:
 - restructure assertions (particularly how they hold proofs)
 - restructure Formats / InstanceData and how they're made to clarify
 data sources.
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FDominicBurkart%2Fkid.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2FDominicBurkart%2Fkid?ref=badge_large)
